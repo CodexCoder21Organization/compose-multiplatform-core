@@ -116,6 +116,11 @@ import platform.darwin.dispatch_get_main_queue
  * @param [testBlock] The test function.
  */
 internal fun runUIKitInstrumentedTest(testBlock: UIKitInstrumentedTest.() -> Unit) {
+    runUIKitInstrumentedTestInHostingView(testBlock)
+    runUIKitInstrumentedTestInHostingViewController(testBlock)
+}
+
+internal fun runUIKitInstrumentedTestInHostingView(testBlock: UIKitInstrumentedTest.() -> Unit) {
     println("Debug: Running test with ComposeHostingView")
     with(UIKitInstrumentedTest(useHostingView = true)) {
         try {
@@ -124,7 +129,9 @@ internal fun runUIKitInstrumentedTest(testBlock: UIKitInstrumentedTest.() -> Uni
             tearDown()
         }
     }
+}
 
+internal fun runUIKitInstrumentedTestInHostingViewController(testBlock: UIKitInstrumentedTest.() -> Unit) {
     println("Debug: Running test with ComposeHostingViewController")
     with(UIKitInstrumentedTest(useHostingView = false)) {
         try {
@@ -257,8 +264,10 @@ internal class UIKitInstrumentedTest(
     val accessibilityNotifications = mutableListOf<AccessibilityNotification>()
     val lastAccessibilityNotification: AccessibilityNotification?
         get() = accessibilityNotifications.lastOrNull()
-    private var hostingViewController: ComposeHostingViewController? = null
-    private var hostingView: ComposeHostingView? = null
+    var hostingViewController: ComposeHostingViewController? = null
+        private set
+    var hostingView: ComposeHostingView? = null
+        private set
 
     val viewController: UIViewController get() =
         appDelegate.window?.rootViewController ?: error("Cannot find active UIViewController")
@@ -277,29 +286,23 @@ internal class UIKitInstrumentedTest(
     fun setContent(
         configure: ComposeContainerConfiguration.() -> Unit = {},
         interfaceOrientation: UIInterfaceOrientation = UIInterfaceOrientationPortrait,
+        waitForIdle: Boolean = true,
         content: @Composable () -> Unit
     ) {
         accessibilityNotifications.clear()
         AccessibilityNotification.onNotificationPostedForTests = {
             accessibilityNotifications.add(it)
         }
-        val innerConfigure: ComposeContainerConfiguration.() -> Unit = {
-            enforceStrictPlistSanityCheck = false
-            configure()
-        }
 
         val rootViewController: UIViewController = if (useHostingView) {
-            hostingView = ComposeHostingView(
-                configuration = ComposeUIViewConfiguration().apply(innerConfigure),
-                content = content,
-                coroutineContext = coroutineContext
-            )
-            UIViewController().also {
-                it.view.embedSubview(hostingView!!)
-            }
+            UIViewController()
         } else {
+            val configuration = ComposeUIViewControllerConfiguration()
+                .apply({ enforceStrictPlistSanityCheck = false })
+                .apply(configure)
+
             ComposeHostingViewController(
-                configuration = ComposeUIViewControllerConfiguration().apply(innerConfigure),
+                configuration = configuration,
                 content = content,
                 coroutineContext = coroutineContext
             ).also {
@@ -308,7 +311,31 @@ internal class UIKitInstrumentedTest(
         }
 
         appDelegate.setUpWindow(rootViewController)
-        waitForIdle()
+
+        if (useHostingView) {
+            val configuration = ComposeUIViewConfiguration()
+                .apply({ enforceStrictPlistSanityCheck = false })
+                .apply(configure)
+
+            val hostingView = ComposeHostingView(
+                configuration = configuration,
+                content = content,
+                coroutineContext = coroutineContext
+            )
+            this.hostingView = hostingView
+
+            rootViewController.view.let {
+                if (configuration.usePreferredSizeSizing) {
+                    it.addSubview(hostingView)
+                } else {
+                    it.embedSubview(hostingView)
+                }
+            }
+        }
+
+        if (waitForIdle) {
+            waitForIdle()
+        }
 
         if (appDelegate.requestInterfaceOrientationChangeIfNeeded(interfaceOrientation)) {
             delay(700)
