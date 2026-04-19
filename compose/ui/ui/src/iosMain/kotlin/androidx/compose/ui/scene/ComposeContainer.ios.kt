@@ -94,8 +94,8 @@ internal class ComposeContainer(
         transparentForTouches = false,
         useOpaqueConfiguration = configuration.opaque,
     ).apply {
-        onSizeThatFits = ::onSizeThatFits
-        onIntrinsicContentSize = ::onIntrinsicContentSize
+        onSizeThatFits = { composeSceneSizeSynchronizer?.onSizeThatFitsRequest(it) }
+        onIntrinsicContentSize = { composeSceneSizeSynchronizer?.preferredCGSize }
     }
 
     private var mediator: ComposeSceneMediator? = null
@@ -123,15 +123,23 @@ internal class ComposeContainer(
         getTopLeftOffsetInWindow = { IntOffset.Zero }, //full screen
         endEdgePanGestureBehavior = configuration.endEdgePanGestureBehavior
     )
-    private val composeSceneSizeSynchronizer = ComposeSceneSizeSynchronizer(
-        view = view,
-        composeSceneSize = { constraints ->
-            mediator?.constrainedSceneSize(constraints) ?: IntSize.Zero
-        },
-        invalidateComposeSceneContainerSize = {
-            view.superview?.invalidateIntrinsicContentSize()
+
+    private val composeSceneSizeSynchronizer: ComposeSceneSizeSynchronizer? =
+        if (configuration.useSelfSizing) {
+            ComposeSceneSizeSynchronizer(
+                view = view,
+                composeSceneSize = { constraints ->
+                    mediator?.constrainedSceneSize(constraints) ?: IntSize.Zero
+                },
+                invalidateComposeSceneContainerSize = {
+                    // SwiftUI observes the hosting view’s intrinsic size, not the internal Compose
+                    // container view.
+                    view.superview?.invalidateIntrinsicContentSize()
+                }
+            )
+        } else {
+            null
         }
-    )
 
     val hasInteropViews: Boolean get() = mediator?.hasInteropViews ?: false
 
@@ -194,14 +202,6 @@ internal class ComposeContainer(
         windowContext.window = window
         updateMotionSpeed()
         lifecycleDelegate.windowScene = window.windowScene
-    }
-
-    private fun onSizeThatFits(size: CValue<CGSize>): CValue<CGSize>? {
-        return composeSceneSizeSynchronizer.onSizeThatFitsRequest(size)
-    }
-
-    private fun onIntrinsicContentSize(): CValue<CGSize>? {
-        return composeSceneSizeSynchronizer.preferredCGSize
     }
 
     fun updateInterfaceOrientationState() {
@@ -284,9 +284,9 @@ internal class ComposeContainer(
         }
 
         onLayoutCompletedListenerHandle?.close()
-        onLayoutCompletedListenerHandle = mediator?.registerOnLayoutCompletedListener(
-            composeSceneSizeSynchronizer::onComposeLayoutCompleted
-        )
+        onLayoutCompletedListenerHandle = composeSceneSizeSynchronizer?.let {
+            mediator?.registerOnLayoutCompletedListener(it::onComposeLayoutCompleted)
+        }
 
         activeStateListener = SceneActiveStateListener(
             getScene = ::windowScene
