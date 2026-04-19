@@ -161,6 +161,7 @@ internal class RootNodeOwner(
     private val ownedLayerManager = OwnedLayerManagerImpl()
     private val pointerInputEventProcessor = PointerInputEventProcessor(owner.root)
     private val measureAndLayoutDelegate = MeasureAndLayoutDelegate(owner.root)
+    private var layoutCompletedManager: LayoutCompletedManager? = null
     private var isDisposed = false
 
     private var positionInWindow: Offset? = null
@@ -212,20 +213,59 @@ internal class RootNodeOwner(
     }
 
     /**
-     * Provides a way to measure Owner's content in given [constraints]
-     * Draw/pointer and other callbacks won't be called here like in [measureAndLayout] functions
+     * Runs a temporary *measure-only* pass for the root under the provided [constraints], then
+     * executes [block] while those constraints are in effect.
+     *
+     * This is a probe measurement: it does not place nodes and does not dispatch draw/pointer
+     * callbacks.
      */
     private fun <T> measuringRootWithConstraints(
         constraints: Constraints,
         block: (LayoutNode) -> T
     ): T {
-        return try {
+        try {
             // TODO: is it possible to measure without reassigning root constraints?
             measureAndLayoutDelegate.updateRootConstraints(constraints)
             measureAndLayoutDelegate.measureOnly()
-            block(owner.root)
+
+            return block(owner.root)
         } finally {
-            measureAndLayoutDelegate.updateRootConstraints(size.toMaxConstraints())
+            val hadPendingBeforeRestore = measureAndLayoutDelegate.hasPendingMeasureOrLayout
+            val restoreConstraints = size.toMaxConstraints()
+            val constraintsChanged = restoreConstraints != constraints
+
+            measureAndLayoutDelegate.updateRootConstraints(restoreConstraints)
+
+            val hasPendingAfterRestore = measureAndLayoutDelegate.hasPendingMeasureOrLayout
+            if (constraintsChanged && !hadPendingBeforeRestore && hasPendingAfterRestore) {
+                // Probe measurement temporarily swaps root constraints. Restoring them may enqueue
+                // a rebound layout pass; suppress its layout-complete dispatch to avoid re-entrancy
+                // for observers that initiated this probe measurement.
+                layoutCompletedManager?.suppressNextDispatch()
+            }
+        }
+    }
+
+    /**
+     * Registers an additional persistent layout-complete listener.
+     *
+     * Unlike [MeasureAndLayoutDelegate.registerOnLayoutCompletedListener], this listener is not
+     * one-shot: it remains active for later layout passes until the returned handle is
+     * closed.
+     */
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable {
+        if (layoutCompletedManager == null) {
+            layoutCompletedManager = LayoutCompletedManager()
+        }
+        layoutCompletedManager?.registerListener(listener)
+
+        return object : AutoCloseable {
+            override fun close() {
+                layoutCompletedManager?.deregisterListener(listener)
+                if (layoutCompletedManager?.isEmpty == true) {
+                    layoutCompletedManager = null
+                }
+            }
         }
     }
 
@@ -560,6 +600,7 @@ internal class RootNodeOwner(
                     }
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
                     rectManager.dispatchCallbacks()
+                    layoutCompletedManager?.dispatch()
                 }
             }
         }
@@ -575,6 +616,7 @@ internal class RootNodeOwner(
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
                 }
                 rectManager.dispatchCallbacks()
+                layoutCompletedManager?.dispatch()
             }
         }
 
@@ -992,6 +1034,50 @@ internal class RootNodeOwner(
 private fun IntSize?.toMaxConstraints() =
     if (this == null) Constraints() else Constraints(maxWidth = width, maxHeight = height)
 
+// TODO a proper way is to provide API in Constraints to get this value
+/**
+ * Equals [Constraints.MinNonFocusMask]
+ */
+private const val ConstraintsMinNonFocusMask = 0x7FFF // 32767
+
+/**
+ * The max value that can be passed as Constraints(0, LargeDimension, 0, LargeDimension)
+ *
+ * Greater values cause "Can't represent a width of".
+ * See [Constraints.createConstraints] and [Constraints.bitsNeedForSize]:
+ *  - it fails if `widthBits + heightBits > 31`
+ *  - widthBits/heightBits are greater than 15 if we pass size >= [Constraints.MinNonFocusMask]
+ */
+internal const val LargeDimension = ConstraintsMinNonFocusMask - 1
+
+/**
+ * After https://android-review.googlesource.com/c/platform/frameworks/support/+/2901556
+ * Compose core doesn't allow measuring in infinity constraints,
+ * but RootNodeOwner and ComposeScene allow passing Infinity constraints by contract
+ * (Android on the other hand doesn't have public API for that and don't have such an issue).
+ *
+ * This method adds additional check on Infinity constraints,
+ * and pass constraint large enough instead
+ */
+private fun MeasureAndLayoutDelegate.updateRootConstraintsWithInfinityCheck(
+    constraints: Constraints?
+) {
+    updateRootConstraints(constraints = constraints.withInfinityCheck())
+}
+
+private fun Constraints?.withInfinityCheck(): Constraints =
+    if (this == null)
+        Constraints(0, LargeDimension, 0, LargeDimension)
+    else
+        Constraints(
+            minWidth = minWidth,
+            maxWidth = if (hasBoundedWidth) maxWidth else LargeDimension,
+            minHeight = minHeight,
+            maxHeight = if (hasBoundedHeight) maxHeight else LargeDimension
+        )
+
+private fun IntSize.toConstraints() = Constraints(maxWidth = width, maxHeight = height)
+
 private object IdentityPositionCalculator : PositionCalculator {
     override fun screenToLocal(positionOnScreen: Offset): Offset = positionOnScreen
     override fun localToScreen(localPosition: Offset): Offset = localPosition
@@ -1020,5 +1106,45 @@ private class RootPlatformWindowInsetsProviderNode(
             insets = windowInsets
             windowInsetsInvalidated()
         }
+    }
+}
+
+private class LayoutCompletedManager {
+    private var suppressed: Int = 0
+    private var listeners = mutableVectorOf<(() -> Unit)?>()
+    private var activeListenersCount: Int = 0
+    val isEmpty: Boolean get() = activeListenersCount == 0
+
+    fun suppressNextDispatch() {
+        suppressed++
+    }
+
+    fun registerListener(listener: () -> Unit) {
+        // Use referential equality: multiple distinct function instances may be "equal" but
+        // must still be treated as separate registrations.
+        for (i in 0 until listeners.size) {
+            if (listeners[i] === listener) return
+        }
+
+        listeners += listener
+        activeListenersCount++
+    }
+
+    fun deregisterListener(listener: () -> Unit) {
+        for (i in 0 until listeners.size) {
+            if (listeners[i] === listener) {
+                listeners[i] = null
+                activeListenersCount--
+                break
+            }
+        }
+    }
+
+    fun dispatch() {
+        if (suppressed > 0) {
+            suppressed--
+            return
+        }
+        listeners.forEach { it?.invoke() }
     }
 }

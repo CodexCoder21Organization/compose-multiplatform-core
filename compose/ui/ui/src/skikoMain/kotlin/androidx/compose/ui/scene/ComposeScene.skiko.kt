@@ -139,6 +139,15 @@ sealed interface ComposeScene : AutoCloseable {
     fun measureContent(constraints: Constraints): IntSize
 
     /**
+     * Registers [listener] to be invoked after each completed measure/layout pass of the scene.
+     *
+     * Returns a handle that **must** be closed to deregister the listener. This is important for
+     * platform integrations to avoid retain cycles between a hosting container and
+     * the scene/root.
+     */
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable
+
+    /**
      * Invalidates position of [ComposeScene] in the window. It will trigger callbacks like
      * [Modifier.onGloballyPositioned] so they can recalculate actual position in the window.
      *
@@ -326,6 +335,4 @@ fun ComposeScene.hasInvalidations(): Boolean =
  * size bounds (e.g., LazyColumn without maximum height).
  */
 @InternalComposeUiApi
-fun ComposeScene.unconstrainedSize(): IntSize {
-    return measureContent(Constraints())
-}
+fun ComposeScene.unconstrainedSize(): IntSize = measureContent(Constraints())

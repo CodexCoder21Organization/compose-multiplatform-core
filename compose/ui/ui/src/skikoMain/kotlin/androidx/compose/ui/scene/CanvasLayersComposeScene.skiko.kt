@@ -216,6 +216,11 @@ private class CanvasLayersComposeSceneImpl(
         return IntSize(width, height)
     }
 
+    override fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable {
+        check(!isClosed) { "registerOnLayoutCompletedListener called after ComposeScene is closed" }
+        return mainOwner.registerOnLayoutCompletedListener(listener)
+    }
+
     override fun invalidatePositionInWindow() {
         check(!isClosed) { "invalidatePositionInWindow called after ComposeScene is closed" }
         mainOwner.invalidatePositionInWindow()
