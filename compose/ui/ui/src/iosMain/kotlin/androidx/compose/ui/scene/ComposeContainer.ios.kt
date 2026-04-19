@@ -37,9 +37,14 @@ import androidx.compose.ui.uikit.density
 import androidx.compose.ui.uikit.embedSubview
 import androidx.compose.ui.uikit.utils.CMPKeyValueObserver
 import androidx.compose.ui.uikit.utils.CMPUIWindowSceneUtils
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toIntSize
 import androidx.compose.ui.util.fastForEachReversed
 import androidx.compose.ui.viewinterop.UIKitInteropAction
 import androidx.compose.ui.viewinterop.UIKitInteropTransaction
@@ -54,8 +59,13 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.cinterop.CPointed
 import kotlinx.cinterop.CPointer
+import kotlinx.cinterop.CValue
+import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import platform.CoreGraphics.CGFloat
+import platform.CoreGraphics.CGSize
+import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.NSKeyValueObservingOptionNew
 import platform.Foundation.addObserver
 import platform.Foundation.removeObserver
@@ -65,8 +75,10 @@ import platform.UIKit.UIResponder
 import platform.UIKit.UIUserInterfaceLayoutDirection
 import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIViewController
+import platform.UIKit.UIViewNoIntrinsicMetric
 import platform.UIKit.UIWindow
 import platform.UIKit.UIWindowScene
+import platform.UIKit.UIView
 
 /**
  * The class represents a common part of Compose integration for all iOS containers.
@@ -81,7 +93,10 @@ internal class ComposeContainer(
     val view = ComposeContainerView(
         transparentForTouches = false,
         useOpaqueConfiguration = configuration.opaque,
-    )
+    ).apply {
+        onSizeThatFits = ::onSizeThatFits
+        onIntrinsicContentSize = ::onIntrinsicContentSize
+    }
 
     private var mediator: ComposeSceneMediator? = null
     private val windowContext = PlatformWindowContext()
@@ -108,6 +123,16 @@ internal class ComposeContainer(
         getTopLeftOffsetInWindow = { IntOffset.Zero }, //full screen
         endEdgePanGestureBehavior = configuration.endEdgePanGestureBehavior
     )
+    private val composeSceneSizeSynchronizer = ComposeSceneSizeSynchronizer(
+        view = view,
+        composeSceneSize = { constraints ->
+            mediator?.constrainedSceneSize(constraints) ?: IntSize.Zero
+        },
+        invalidateComposeSceneContainerSize = {
+            view.superview?.invalidateIntrinsicContentSize()
+        }
+    )
+
     val hasInteropViews: Boolean get() = mediator?.hasInteropViews ?: false
 
     /*
@@ -120,6 +145,8 @@ internal class ComposeContainer(
     private val systemThemeState: MutableState<SystemTheme> = mutableStateOf(SystemTheme.Unknown)
 
     private val focusedViewsList = FocusedViewsList()
+
+    private var onLayoutCompletedListenerHandle: AutoCloseable? = null
 
     init {
         if (configuration.enforceStrictPlistSanityCheck) {
@@ -167,6 +194,14 @@ internal class ComposeContainer(
         windowContext.window = window
         updateMotionSpeed()
         lifecycleDelegate.windowScene = window.windowScene
+    }
+
+    private fun onSizeThatFits(size: CValue<CGSize>): CValue<CGSize>? {
+        return composeSceneSizeSynchronizer.onSizeThatFitsRequest(size)
+    }
+
+    private fun onIntrinsicContentSize(): CValue<CGSize>? {
+        return composeSceneSizeSynchronizer.preferredCGSize
     }
 
     fun updateInterfaceOrientationState() {
@@ -248,6 +283,11 @@ internal class ComposeContainer(
             }
         }
 
+        onLayoutCompletedListenerHandle?.close()
+        onLayoutCompletedListenerHandle = mediator?.registerOnLayoutCompletedListener(
+            composeSceneSizeSynchronizer::onComposeLayoutCompleted
+        )
+
         activeStateListener = SceneActiveStateListener(
             getScene = ::windowScene
         ) { isSceneActive ->
@@ -275,6 +315,9 @@ internal class ComposeContainer(
         view.updateMetalView(metalView = null)
         navigationEventInput.onDidMoveToWindow(null, view)
         architectureComponentsOwner.navigationEventDispatcher.removeInput(navigationEventInput)
+
+        onLayoutCompletedListenerHandle?.close()
+        onLayoutCompletedListenerHandle = null
 
         mediator = null
 
@@ -478,4 +521,114 @@ private class SceneGeometryObserver(
     ) {
         onGeometryChanged()
     }
+}
+
+/**
+ * Synchronizes UIKit/SwiftUI sizing proposals (`sizeThatFits`) with the preferred size produced by
+ * the Compose scene under the corresponding constraints.
+ *
+ * - UIKit/SwiftUI proposes constraints via `sizeThatFits`
+ * - Compose produces a preferred size under those constraints after its layout completes
+ * - if the preferred size changes, we invalidate the *hosting* view intrinsic size so
+ *   UIKit/SwiftUI can re-run layout with the updated information
+ */
+internal class ComposeSceneSizeSynchronizer(
+    private val view: ComposeContainerView,
+    private val composeSceneSize: (Constraints) -> IntSize,
+    private var invalidateComposeSceneContainerSize: () -> Unit = {},
+) {
+
+    /**
+     * Latest constraints requested by UIKit/SwiftUI through [UIView.sizeThatFits].
+     * We intentionally keep the latest value because [UIView.sizeThatFits] is the source of truth.
+     */
+    private var latestSizeThatFitsConstraints: Constraints? = null
+
+    /**
+     * Constraints for which [lastMeasuredPreferredSize] was produced.
+     * This allows us to reuse measured results only when constraints exactly match.
+     */
+    private var lastMeasuredConstraints: Constraints? = null
+
+    /**
+     * Preferred size measured by Compose for [lastMeasuredConstraints].
+     */
+    private var lastMeasuredPreferredSize: IntSize? = null
+
+    /**
+     * Final size exposed to UIKit sizing APIs. The size resolved for constraints given by UIKit
+     * and the preferred size measured by Compose respecting these constraints.
+     *
+     * This value may temporarily contain a fallback (before Compose measurement is available).
+     */
+    private var preferredSize: IntSize? = null
+
+    val preferredCGSize: CValue<CGSize>?
+        get() = preferredSize?.toCGSize(view.density)
+
+    fun onSizeThatFitsRequest(size: CValue<CGSize>): CValue<CGSize>? {
+        val constraints = size.useContents {
+            Constraints(
+                maxWidth = width.toConstraintValue(view.density),
+                maxHeight = height.toConstraintValue(view.density)
+            )
+        }
+
+        // `sizeThatFits` requests come from UIKit/SwiftUI and should win over stale internal state.
+        if (latestSizeThatFitsConstraints != constraints) {
+            latestSizeThatFitsConstraints = constraints
+        }
+
+        // Fast path: if Compose already measured preferred size for the exact same constraints,
+        // return it directly.
+        if (lastMeasuredConstraints == constraints && lastMeasuredPreferredSize != null) {
+            preferredSize = lastMeasuredPreferredSize
+            return preferredCGSize
+        }
+
+        // Fallback path used before Compose measurement is ready for these constraints.
+        // For `UIViewNoIntrinsicMetric`, ask UIKit's super implementation for a concrete axis size.
+        val viewSizeThatFits by lazy { view.superSizeThatFits(size) }
+
+        val width = if (size.useContents { width } == UIViewNoIntrinsicMetric) {
+            viewSizeThatFits.useContents { width }
+        } else {
+            size.useContents { width }
+        }
+        val height = if (size.useContents { height } == UIViewNoIntrinsicMetric) {
+            viewSizeThatFits.useContents { height }
+        } else {
+            size.useContents { height }
+        }
+
+        val fallbackSize = with(view.density) {
+            DpSize(width.dp, height.dp).toSize().toIntSize()
+        }
+        preferredSize = fallbackSize
+        return preferredCGSize
+    }
+
+    fun onComposeLayoutCompleted() {
+        val constraints = latestSizeThatFitsConstraints ?: return
+        val preferredSize = composeSceneSize(constraints)
+
+        lastMeasuredConstraints = constraints
+        lastMeasuredPreferredSize = preferredSize
+
+        if (preferredSize != this.preferredSize) {
+            this.preferredSize = preferredSize
+            invalidateComposeSceneContainerSize()
+        }
+    }
+
+    private fun CGFloat.toConstraintValue(density: Density): Int {
+        if (this == UIViewNoIntrinsicMetric) return Constraints.Infinity
+        val px = with(density) { dp.roundToPx() }
+        if (px >= 0 || px == Constraints.Infinity) return px
+        throw IllegalArgumentException("Invalid constraint size: $this")
+    }
+}
+
+private fun IntSize.toCGSize(density: Density) = with(density) {
+    CGSizeMake(width.toDp().value.toDouble(), height.toDp().value.toDouble())
 }

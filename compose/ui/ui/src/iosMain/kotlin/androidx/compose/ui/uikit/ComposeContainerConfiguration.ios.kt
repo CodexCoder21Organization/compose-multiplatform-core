@@ -72,6 +72,23 @@ sealed class ComposeContainerConfiguration {
      */
     @ExperimentalComposeUiApi
     var isClearFocusOnMouseDownEnabled: Boolean = ComposeUiFlags.isClearFocusOnMouseDownEnabled
+
+    /**
+     * Enables preferred-size sizing interop for UIKit/SwiftUI hosting containers.
+     *
+     * When enabled, the internal container view participates in UIKit sizing APIs:
+     * - `sizeThatFits(...)` proposals from UIKit/SwiftUI are translated to Compose constraints
+     * - after each Compose layout completes, the scene is probed for its preferred size under the
+     *   latest proposal constraints
+     * - if the preferred size changes, the hosting view invalidates its `intrinsicContentSize` to
+     *   trigger another UIKit/SwiftUI layout pass
+     *
+     * This mode is intended for `ComposeHostingView` / `ComposeHostingViewController` style
+     * integrations. Other container types should keep it disabled to avoid unnecessary measuring
+     * work and potential sizing feedback loops.
+     */
+    @ExperimentalComposeUiApi
+    var usePreferredSizeSizing: Boolean = false
 }
 
 /**

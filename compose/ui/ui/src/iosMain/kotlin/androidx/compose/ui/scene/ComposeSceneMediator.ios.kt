@@ -74,6 +74,7 @@ import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntRect
@@ -276,7 +277,7 @@ internal class ComposeSceneMediator(
      * Density of the hosting UIKit screen.
      *
      * This value is intentionally separate from [composeSceneDensity] so we can support setting
-     * composeSceneDensity without regressions.
+     * [composeSceneDensity] without regressions.
      */
     val screenDensity: Density get() = _overlayView.density
 
@@ -758,6 +759,11 @@ internal class ComposeSceneMediator(
         this.onPreviewKeyEvent = onPreviewKeyEvent ?: { false }
         this.onKeyEvent = onKeyEvent ?: { false }
     }
+
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable =
+        scene.registerOnLayoutCompletedListener(listener)
+
+    fun constrainedSceneSize(constraints: Constraints): IntSize = scene.constrainedSize(constraints)
 
     /**
      * Converts [UIPress] objects to [KeyEvent] and dispatches them to the appropriate handlers.

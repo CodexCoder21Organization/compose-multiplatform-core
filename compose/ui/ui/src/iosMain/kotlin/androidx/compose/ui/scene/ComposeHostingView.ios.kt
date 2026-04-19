@@ -55,6 +55,9 @@ internal class ComposeHostingView(
     // Used for testing
     val rootRedrawer: MetalRedrawer? get() = container.view.redrawer
     fun hasInvalidations(): Boolean = container.hasInvalidations()
+    // Invoked when this hosting view invalidates its intrinsic size.
+    // Kept as an internal test hook to assert SwiftUI/UIKit relayout signaling.
+    var onIntrinsicContentSizeInvalidated: (() -> Unit)? = null
 
     init {
         addSubview(container.view)
@@ -68,6 +71,11 @@ internal class ComposeHostingView(
 
     override fun intrinsicContentSize(): CValue<CGSize> {
         return container.view.intrinsicContentSize
+    }
+
+    override fun invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onIntrinsicContentSizeInvalidated?.invoke()
     }
 
     override fun layoutSubviews() {
@@ -128,6 +136,7 @@ internal class ComposeHostingView(
     }
 
     private var isAnimating = false
+
     private fun animateSizeTransition(initialSize: DpSize) {
         if (isAnimating) {
             container.view.setFrame(bounds)
