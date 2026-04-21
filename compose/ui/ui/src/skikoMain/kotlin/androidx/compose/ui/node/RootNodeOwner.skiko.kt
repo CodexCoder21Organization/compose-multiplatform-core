@@ -251,16 +251,20 @@ internal class RootNodeOwner(
      *
      * Unlike [MeasureAndLayoutDelegate.registerOnLayoutCompletedListener], this listener is not
      * one-shot: it remains active for later layout passes until the returned handle is
-     * closed.
+     * unregistered.
      */
-    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable {
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle {
         if (layoutCompletedManager == null) {
             layoutCompletedManager = LayoutCompletedManager()
         }
         layoutCompletedManager?.registerListener(listener)
 
-        return object : AutoCloseable {
-            override fun close() {
+        return object : OnLayoutCompletedListenerHandle {
+            private var isUnregistered = false
+
+            override fun unregister() {
+                if (isUnregistered) return
+                isUnregistered = true
                 layoutCompletedManager?.deregisterListener(listener)
                 if (layoutCompletedManager?.isEmpty == true) {
                     layoutCompletedManager = null
@@ -1107,6 +1111,12 @@ private class RootPlatformWindowInsetsProviderNode(
             windowInsetsInvalidated()
         }
     }
+}
+
+@InternalComposeUiApi
+fun interface OnLayoutCompletedListenerHandle {
+    /** Unregisters the associated listener. Calling this multiple times is a no-op. */
+    fun unregister()
 }
 
 private class LayoutCompletedManager {

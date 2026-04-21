@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.rotary.RotaryScrollEvent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.node.LayoutNode
+import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformDragAndDropManager
@@ -141,11 +142,11 @@ sealed interface ComposeScene : AutoCloseable {
     /**
      * Registers [listener] to be invoked after each completed measure/layout pass of the scene.
      *
-     * Returns a handle that **must** be closed to deregister the listener. This is important for
-     * platform integrations to avoid retain cycles between a hosting container and
-     * the scene/root.
+     * Returns a [OnLayoutCompletedListenerHandle] that **must** be unregistered to unregister
+     * the listener. This is important for platform integrations to avoid retain cycles between
+     * a hosting container and the scene/root.
      */
-    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle
 
     /**
      * Invalidates position of [ComposeScene] in the window. It will trigger callbacks like

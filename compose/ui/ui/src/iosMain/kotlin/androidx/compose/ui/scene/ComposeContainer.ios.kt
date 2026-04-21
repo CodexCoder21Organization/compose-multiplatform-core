@@ -24,6 +24,7 @@ import androidx.compose.ui.LocalSystemTheme
 import androidx.compose.ui.SystemTheme
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.navigationevent.UIKitNavigationEventInput
+import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.platform.DefaultArchitectureComponentsOwner
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.MotionDurationScaleImpl
@@ -154,7 +155,7 @@ internal class ComposeContainer(
 
     private val focusedViewsList = FocusedViewsList()
 
-    private var onLayoutCompletedListenerHandle: AutoCloseable? = null
+    private var onLayoutCompletedListenerHandle: OnLayoutCompletedListenerHandle? = null
 
     init {
         if (configuration.enforceStrictPlistSanityCheck) {
@@ -283,7 +284,7 @@ internal class ComposeContainer(
             }
         }
 
-        onLayoutCompletedListenerHandle?.close()
+        onLayoutCompletedListenerHandle?.unregister()
         onLayoutCompletedListenerHandle = composeSceneSizeSynchronizer?.let {
             mediator?.registerOnLayoutCompletedListener(it::onComposeLayoutCompleted)
         }
@@ -316,7 +317,7 @@ internal class ComposeContainer(
         navigationEventInput.onDidMoveToWindow(null, view)
         architectureComponentsOwner.navigationEventDispatcher.removeInput(navigationEventInput)
 
-        onLayoutCompletedListenerHandle?.close()
+        onLayoutCompletedListenerHandle?.unregister()
         onLayoutCompletedListenerHandle = null
 
         mediator = null

@@ -46,6 +46,7 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.OffsetToFocusedRect
 import androidx.compose.ui.navigationevent.UIKitNavigationEventInput
+import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.platform.AccessibilityMediator
 import androidx.compose.ui.platform.CUPERTINO_TOUCH_SLOP
 import androidx.compose.ui.platform.DefaultInputModeManager
@@ -760,7 +761,7 @@ internal class ComposeSceneMediator(
         this.onKeyEvent = onKeyEvent ?: { false }
     }
 
-    fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable =
+    fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle =
         scene.registerOnLayoutCompletedListener(listener)
 
     fun constrainedSceneSize(constraints: Constraints): IntSize = scene.constrainedSize(constraints)

@@ -26,6 +26,7 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.pointer.PointerInputEvent
 import androidx.compose.ui.input.rotary.RotaryScrollEvent
 import androidx.compose.ui.node.LayoutNode
+import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.node.RootNodeOwner
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.setContent
@@ -150,7 +151,7 @@ private class PlatformLayersComposeSceneImpl(
         return mainOwner.measureContentWithConstraints(constraints)
     }
 
-    override fun registerOnLayoutCompletedListener(listener: () -> Unit): AutoCloseable {
+    override fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle {
         check(!isClosed) { "registerOnLayoutCompletedListener called after ComposeScene is closed" }
         return mainOwner.registerOnLayoutCompletedListener(listener)
     }
