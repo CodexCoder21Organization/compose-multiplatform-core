@@ -79,7 +79,7 @@ sealed class ComposeContainerConfiguration {
      * `sizeThatFits` / intrinsic sizing).
      */
     @ExperimentalComposeUiApi
-    var useSelfSizing: Boolean = false
+    var useSelfSizing: Boolean = true
 }
 
 /**
