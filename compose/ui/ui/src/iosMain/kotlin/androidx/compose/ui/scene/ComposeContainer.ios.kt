@@ -79,7 +79,6 @@ import platform.UIKit.UIViewController
 import platform.UIKit.UIViewNoIntrinsicMetric
 import platform.UIKit.UIWindow
 import platform.UIKit.UIWindowScene
-import platform.UIKit.UIView
 
 /**
  * The class represents a common part of Compose integration for all iOS containers.
@@ -130,7 +129,7 @@ internal class ComposeContainer(
             ComposeSceneSizeSynchronizer(
                 view = view,
                 composeSceneSize = { constraints ->
-                    mediator?.constrainedSceneSize(constraints) ?: IntSize.Zero
+                    mediator?.constrainedSceneSize(constraints)
                 },
                 invalidateComposeSceneContainerSize = {
                     // SwiftUI observes the hosting view’s intrinsic size, not the internal Compose
@@ -535,32 +534,17 @@ private class SceneGeometryObserver(
  */
 internal class ComposeSceneSizeSynchronizer(
     private val view: ComposeContainerView,
-    private val composeSceneSize: (Constraints) -> IntSize,
+    private val composeSceneSize: (Constraints) -> IntSize?,
     private var invalidateComposeSceneContainerSize: () -> Unit = {},
 ) {
 
-    /**
-     * Latest constraints requested by UIKit/SwiftUI through [UIView.sizeThatFits].
-     * We intentionally keep the latest value because [UIView.sizeThatFits] is the source of truth.
-     */
     private var latestSizeThatFitsConstraints: Constraints? = null
-
     /**
-     * Constraints for which [lastMeasuredPreferredSize] was produced.
-     * This allows us to reuse measured results only when constraints exactly match.
+     * Latest constraints proposed by UIKit/SwiftUI through `sizeThatFits`.
      */
     private var lastMeasuredConstraints: Constraints? = null
-
     /**
      * Preferred size measured by Compose for [lastMeasuredConstraints].
-     */
-    private var lastMeasuredPreferredSize: IntSize? = null
-
-    /**
-     * Final size exposed to UIKit sizing APIs. The size resolved for constraints given by UIKit
-     * and the preferred size measured by Compose respecting these constraints.
-     *
-     * This value may temporarily contain a fallback (before Compose measurement is available).
      */
     private var preferredSize: IntSize? = null
 
@@ -582,13 +566,37 @@ internal class ComposeSceneSizeSynchronizer(
 
         // Fast path: if Compose already measured preferred size for the exact same constraints,
         // return it directly.
-        if (lastMeasuredConstraints == constraints && lastMeasuredPreferredSize != null) {
-            preferredSize = lastMeasuredPreferredSize
+        if (lastMeasuredConstraints == constraints && preferredSize != null) {
             return preferredCGSize
         }
 
-        // Fallback path used before Compose measurement is ready for these constraints.
-        // For `UIViewNoIntrinsicMetric`, ask UIKit's super implementation for a concrete axis size.
+        return if (measureAndCachePreferredSize(constraints) != null) {
+            preferredCGSize
+        } else {
+            fallbackSizeThatFits(size)
+        }
+    }
+
+    fun onComposeLayoutCompleted() {
+        val constraints = latestSizeThatFitsConstraints ?: return
+        val didUpdatePreferredSize = measureAndCachePreferredSize(constraints) ?: return
+
+        if (didUpdatePreferredSize) {
+            invalidateComposeSceneContainerSize()
+        }
+    }
+
+    private fun measureAndCachePreferredSize(constraints: Constraints): Boolean? {
+        val preferredSize = composeSceneSize(constraints) ?: return null
+        lastMeasuredConstraints = constraints
+        val preferredSizeUpdated = preferredSize != this.preferredSize
+        if (preferredSizeUpdated) {
+            this.preferredSize = preferredSize
+        }
+        return preferredSizeUpdated
+    }
+
+    private fun fallbackSizeThatFits(size: CValue<CGSize>): CValue<CGSize> {
         val viewSizeThatFits by lazy { view.superSizeThatFits(size) }
 
         val width = if (size.useContents { width } == UIViewNoIntrinsicMetric) {
@@ -602,23 +610,8 @@ internal class ComposeSceneSizeSynchronizer(
             size.useContents { height }
         }
 
-        val fallbackSize = with(view.density) {
-            DpSize(width.dp, height.dp).toSize().toIntSize()
-        }
-        preferredSize = fallbackSize
-        return preferredCGSize
-    }
-
-    fun onComposeLayoutCompleted() {
-        val constraints = latestSizeThatFitsConstraints ?: return
-        val preferredSize = composeSceneSize(constraints)
-
-        lastMeasuredConstraints = constraints
-        lastMeasuredPreferredSize = preferredSize
-
-        if (preferredSize != this.preferredSize) {
-            this.preferredSize = preferredSize
-            invalidateComposeSceneContainerSize()
+        return with(view.density) {
+            DpSize(width.dp, height.dp).toSize().toIntSize().toCGSize(this)
         }
     }
 
