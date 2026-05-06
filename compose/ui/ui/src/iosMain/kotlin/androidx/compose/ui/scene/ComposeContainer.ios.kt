@@ -548,6 +548,8 @@ internal class ComposeSceneSizeSynchronizer(
      */
     private var preferredSize: IntSize? = null
 
+    private val hasPreferredSize: Boolean get() = preferredSize != null
+
     val preferredCGSize: CValue<CGSize>?
         get() = preferredSize?.toCGSize(view.density)
 
@@ -566,11 +568,11 @@ internal class ComposeSceneSizeSynchronizer(
 
         // Fast path: if Compose already measured preferred size for the exact same constraints,
         // return it directly.
-        if (lastMeasuredConstraints == constraints && preferredSize != null) {
+        if (lastMeasuredConstraints == constraints && hasPreferredSize) {
             return preferredCGSize
         }
 
-        return if (measureAndCachePreferredSize(constraints) != null) {
+        return if (hasPreferredSize && measureAndCachePreferredSize(constraints) != null) {
             preferredCGSize
         } else {
             fallbackSizeThatFits(size)
@@ -588,6 +590,7 @@ internal class ComposeSceneSizeSynchronizer(
 
     private fun measureAndCachePreferredSize(constraints: Constraints): Boolean? {
         val preferredSize = composeSceneSize(constraints) ?: return null
+
         lastMeasuredConstraints = constraints
         val preferredSizeUpdated = preferredSize != this.preferredSize
         if (preferredSizeUpdated) {
