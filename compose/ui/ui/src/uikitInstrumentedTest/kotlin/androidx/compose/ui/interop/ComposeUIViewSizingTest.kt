@@ -29,8 +29,8 @@ import androidx.compose.ui.scene.ComposeHostingView
 import androidx.compose.ui.test.UIKitInstrumentedTest
 import androidx.compose.ui.test.runUIKitInstrumentedTestInHostingView
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.asDpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.dpSize
 import androidx.compose.ui.unit.size
 import androidx.compose.ui.unit.toDpRect
 import kotlin.test.Test
@@ -278,7 +278,7 @@ class ComposeUIViewSizingTest {
         private val getComposeContentSize: () -> DpSize?
     ) {
         val composeContentSize: DpSize? get() = getComposeContentSize()
-        val composeUIViewSize: DpSize get() = composeView.frame.useContents { size.asDpSize() }
+        val composeUIViewSize: DpSize get() = composeView.frame.dpSize()
 
         private var lastSwiftUIConstraints: CValue<CGSize>? = null
 
