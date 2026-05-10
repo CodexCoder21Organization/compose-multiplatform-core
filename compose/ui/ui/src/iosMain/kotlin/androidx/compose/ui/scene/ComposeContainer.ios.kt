@@ -132,9 +132,7 @@ internal class ComposeContainer(
                     mediator?.constrainedSceneSize(constraints)
                 },
                 invalidateComposeSceneContainerSize = {
-                    // SwiftUI observes the hosting view’s intrinsic size, not the internal Compose
-                    // container view.
-                    view.superview?.invalidateIntrinsicContentSize()
+                    view.invalidateIntrinsicContentSize()
                 }
             )
         } else {
