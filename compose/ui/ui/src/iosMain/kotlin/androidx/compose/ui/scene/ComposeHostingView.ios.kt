@@ -87,13 +87,13 @@ internal class ComposeHostingView(
         if (initialSize == null ||
             initialSize == bounds.dpSize() ||
             container.hasInteropViews) {
-            container.view.setFrame(bounds)
+            synchronizeComposeViewFrame()
             return
         }
 
         val scope = container.nestedCoroutineScope()
         if (!scope.isActive) {
-            container.view.setFrame(bounds)
+            synchronizeComposeViewFrame()
             return
         }
 
@@ -108,7 +108,7 @@ internal class ComposeHostingView(
             if (actualSize != null && actualSize != bounds.dpSize() && !container.hasInteropViews) {
                 animateSizeTransition(initialSize = initialSize)
             } else {
-                container.view.setFrame(bounds)
+                synchronizeComposeViewFrame()
             }
         }
     }
@@ -135,11 +135,15 @@ internal class ComposeHostingView(
         container.disposeComposeScene()
     }
 
+    private fun synchronizeComposeViewFrame() {
+        container.view.setFrame(bounds)
+    }
+
     private var isAnimating = false
 
     private fun animateSizeTransition(initialSize: DpSize) {
         if (isAnimating) {
-            container.view.setFrame(bounds)
+            synchronizeComposeViewFrame()
             return
         }
         isAnimating = true
@@ -166,7 +170,7 @@ internal class ComposeHostingView(
             animations()
         }
         container.view.clipsToBounds = false
-        container.view.setFrame(bounds)
+        synchronizeComposeViewFrame()
     }
 }
 
