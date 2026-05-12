@@ -58,6 +58,7 @@ internal class ComposeContainerView(
 
     var onSizeThatFits: (CValue<CGSize>) -> CValue<CGSize>? = { null }
     var onIntrinsicContentSize: () -> CValue<CGSize>? = { null }
+    var onIntrinsicContentSizeInvalidated: (() -> Unit)? = null
 
     val redrawer: MetalRedrawer? get() = metalView?.redrawer
 
@@ -78,6 +79,11 @@ internal class ComposeContainerView(
 
     override fun intrinsicContentSize(): CValue<CGSize> =
         onIntrinsicContentSize() ?: super.intrinsicContentSize()
+
+    override fun invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onIntrinsicContentSizeInvalidated?.invoke()
+    }
 
     override fun traitCollectionDidChange(previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)

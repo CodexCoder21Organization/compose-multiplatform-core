@@ -63,6 +63,9 @@ internal class ComposeHostingView(
         addSubview(container.view)
         clipsToBounds = true
         opaque = configuration.opaque
+        container.view.onIntrinsicContentSizeInvalidated = {
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override fun sizeThatFits(size: CValue<CGSize>): CValue<CGSize> {

@@ -545,13 +545,20 @@ internal class ComposeSceneSizeSynchronizer(
      * Preferred size measured by Compose for [lastMeasuredConstraints].
      */
     private var preferredSize: IntSize? = null
+    /**
+     * Last size returned from `sizeThatFits`.
+     *
+     * Used as a temporary intrinsic size fallback until Compose measures and caches a real
+     * preferred size for the latest external proposal.
+     */
+    private var lastSizeThatFitsResult: CValue<CGSize>? = null
 
     private val hasPreferredSize: Boolean get() = preferredSize != null
 
     val preferredCGSize: CValue<CGSize>?
-        get() = preferredSize?.toCGSize(view.density)
+        get() = preferredSize?.toCGSize(view.density) ?: lastSizeThatFitsResult
 
-    fun onSizeThatFitsRequest(size: CValue<CGSize>): CValue<CGSize>? {
+    fun onSizeThatFitsRequest(size: CValue<CGSize>): CValue<CGSize> {
         val constraints = size.useContents {
             Constraints(
                 maxWidth = width.toConstraintValue(view.density),
@@ -564,17 +571,28 @@ internal class ComposeSceneSizeSynchronizer(
             latestSizeThatFitsConstraints = constraints
         }
 
+        val result = preferredSizeForConstraints(constraints) ?: fallbackSizeThatFits(size)
+        lastSizeThatFitsResult = result
+
+        return result
+    }
+
+    private fun preferredSizeForConstraints(constraints: Constraints): CValue<CGSize>? {
+        if (!hasPreferredSize) return null
+
         // Fast path: if Compose already measured preferred size for the exact same constraints,
         // return it directly.
-        if (lastMeasuredConstraints == constraints && hasPreferredSize) {
+        if (lastMeasuredConstraints == constraints) {
             return preferredCGSize
         }
 
-        return if (hasPreferredSize && measureAndCachePreferredSize(constraints) != null) {
-            preferredCGSize
-        } else {
-            fallbackSizeThatFits(size)
+        val didUpdatePreferredSize = measureAndCachePreferredSize(constraints) ?: return null
+
+        if (didUpdatePreferredSize) {
+            invalidateComposeSceneContainerSize()
         }
+
+        return preferredCGSize
     }
 
     fun onComposeLayoutCompleted() {
