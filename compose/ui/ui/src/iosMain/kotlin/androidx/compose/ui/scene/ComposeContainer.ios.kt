@@ -94,8 +94,8 @@ internal class ComposeContainer(
         transparentForTouches = false,
         useOpaqueConfiguration = configuration.opaque,
     ).apply {
-        onSizeThatFits = { composeSceneSizeSynchronizer?.onSizeThatFitsRequest(it) }
-        onIntrinsicContentSize = { composeSceneSizeSynchronizer?.preferredCGSize }
+        onSizeThatFits = { composeSceneSizeSynchronizer.onSizeThatFitsRequest(it) }
+        onIntrinsicContentSize = { composeSceneSizeSynchronizer.preferredCGSize }
     }
 
     private var mediator: ComposeSceneMediator? = null
@@ -124,20 +124,12 @@ internal class ComposeContainer(
         endEdgePanGestureBehavior = configuration.endEdgePanGestureBehavior
     )
 
-    private val composeSceneSizeSynchronizer: ComposeSceneSizeSynchronizer? =
-        if (configuration.useSelfSizing) {
-            ComposeSceneSizeSynchronizer(
-                view = view,
-                composeSceneSize = { constraints ->
-                    mediator?.constrainedSceneSize(constraints)
-                },
-                invalidateComposeSceneContainerSize = {
-                    view.invalidateIntrinsicContentSize()
-                }
-            )
-        } else {
-            null
-        }
+    private val composeSceneSizeSynchronizer: ComposeSceneSizeSynchronizer =
+        ComposeSceneSizeSynchronizer(
+            view = view,
+            composeSceneSize = { mediator?.constrainedSceneSize(it) },
+            invalidateComposeSceneContainerSize = view::invalidateIntrinsicContentSize
+        )
 
     val hasInteropViews: Boolean get() = mediator?.hasInteropViews ?: false
 

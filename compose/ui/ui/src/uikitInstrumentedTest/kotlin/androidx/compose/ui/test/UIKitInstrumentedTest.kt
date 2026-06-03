@@ -324,13 +324,7 @@ internal class UIKitInstrumentedTest(
             )
             this.hostingView = hostingView
 
-            rootViewController.view.let {
-                if (configuration.usePreferredSizeSizing) {
-                    it.addSubview(hostingView)
-                } else {
-                    it.embedSubview(hostingView)
-                }
-            }
+            rootViewController.view.embedSubview(hostingView)
         }
 
         if (waitForIdle) {

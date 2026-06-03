@@ -72,14 +72,6 @@ sealed class ComposeContainerConfiguration {
      */
     @ExperimentalComposeUiApi
     var isClearFocusOnMouseDownEnabled: Boolean = ComposeUiFlags.isClearFocusOnMouseDownEnabled
-
-    /**
-     * Enables sizing of the container to fit the preferred size of the Compose content, evaluated
-     * under the size constraints proposed by the containing UIKit/SwiftUI layout flow (e.g.
-     * `sizeThatFits` / intrinsic sizing).
-     */
-    @ExperimentalComposeUiApi
-    var useSelfSizing: Boolean = true
 }
 
 /**

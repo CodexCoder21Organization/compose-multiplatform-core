@@ -48,10 +48,10 @@ class ComposeUIViewSizingTest {
 
     @Test
     fun testBothAxesBounded() = testComposeUIViewSizing(
-            content = { Box(Modifier.size(contentSize)) },
-            proposal = CGSizeMake(150.0, 60.0),
-            expected = DpSize(150.dp, 60.dp)
-        )
+        content = { Box(Modifier.size(contentSize)) },
+        proposal = CGSizeMake(150.0, 60.0),
+        expected = DpSize(150.dp, 60.dp)
+    )
 
     @Test
     fun testBothAxesBoundedProposedHeightLargerThanContentSize() = testComposeUIViewSizing(
@@ -254,7 +254,6 @@ class ComposeUIViewSizingTest {
         var composeSceneSize: DpSize? = null
 
         setContent(
-            configure = { useSelfSizing = true },
             waitForIdle = false
         ) {
             Column(
