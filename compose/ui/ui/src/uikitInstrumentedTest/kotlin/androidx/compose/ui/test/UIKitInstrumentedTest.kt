@@ -215,7 +215,7 @@ internal fun runUIKitInstrumentedTest(
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class UIKitInstrumentedTest(
-    private val useHostingView: Boolean
+    val useHostingView: Boolean
 ) {
     companion object {
         fun delay(timeoutMillis: Long) {
@@ -286,7 +286,6 @@ internal class UIKitInstrumentedTest(
     fun setContent(
         configure: ComposeContainerConfiguration.() -> Unit = {},
         interfaceOrientation: UIInterfaceOrientation = UIInterfaceOrientationPortrait,
-        waitForIdle: Boolean = true,
         content: @Composable () -> Unit
     ) {
         accessibilityNotifications.clear()
@@ -295,44 +294,53 @@ internal class UIKitInstrumentedTest(
         }
 
         val rootViewController: UIViewController = if (useHostingView) {
-            UIViewController()
-        } else {
-            val configuration = ComposeUIViewControllerConfiguration()
-                .apply({ enforceStrictPlistSanityCheck = false })
-                .apply(configure)
-
-            ComposeHostingViewController(
-                configuration = configuration,
-                content = content,
-                coroutineContext = coroutineContext
-            ).also {
-                hostingViewController = it
+            UIViewController().also {
+                it.view.embedSubview(createHostingView(configure, content))
             }
+        } else {
+            createHostingViewController(configure, content)
         }
 
         appDelegate.setUpWindow(rootViewController)
 
-        if (useHostingView) {
-            val configuration = ComposeUIViewConfiguration()
-                .apply({ enforceStrictPlistSanityCheck = false })
-                .apply(configure)
-
-            val hostingView = ComposeHostingView(
-                configuration = configuration,
-                content = content,
-                coroutineContext = coroutineContext
-            )
-            this.hostingView = hostingView
-
-            rootViewController.view.embedSubview(hostingView)
-        }
-
-        if (waitForIdle) {
-            waitForIdle()
-        }
+        waitForIdle()
 
         if (appDelegate.requestInterfaceOrientationChangeIfNeeded(interfaceOrientation)) {
             delay(700)
+        }
+    }
+
+    fun createHostingView(
+        configure: ComposeUIViewConfiguration.() -> Unit = {},
+        content: @Composable () -> Unit
+    ): ComposeHostingView {
+        val configuration = ComposeUIViewConfiguration()
+            .apply({ enforceStrictPlistSanityCheck = false })
+            .apply(configure)
+
+        return ComposeHostingView(
+            configuration = configuration,
+            content = content,
+            coroutineContext = coroutineContext
+        ).also {
+            hostingView = it
+        }
+    }
+
+    fun createHostingViewController(
+        configure: ComposeUIViewControllerConfiguration.() -> Unit = {},
+        content: @Composable () -> Unit
+    ): ComposeHostingViewController {
+        val configuration = ComposeUIViewControllerConfiguration()
+            .apply({ enforceStrictPlistSanityCheck = false })
+            .apply(configure)
+
+        return ComposeHostingViewController(
+            configuration = configuration,
+            content = content,
+            coroutineContext = coroutineContext
+        ).also {
+            this.hostingViewController = it
         }
     }
 

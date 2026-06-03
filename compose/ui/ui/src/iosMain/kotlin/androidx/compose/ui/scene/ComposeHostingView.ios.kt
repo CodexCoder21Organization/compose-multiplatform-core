@@ -50,7 +50,11 @@ internal class ComposeHostingView(
         content = content,
         coroutineContext = coroutineContext,
         lifecycleDelegate = lifecycleDelegate
-    )
+    ).also {
+        it.view.onIntrinsicContentSizeInvalidated = {
+            invalidateIntrinsicContentSize()
+        }
+    }
 
     // Used for testing
     val rootRedrawer: MetalRedrawer? get() = container.view.redrawer
@@ -63,9 +67,6 @@ internal class ComposeHostingView(
         addSubview(container.view)
         clipsToBounds = true
         opaque = configuration.opaque
-        container.view.onIntrinsicContentSizeInvalidated = {
-            invalidateIntrinsicContentSize()
-        }
     }
 
     override fun sizeThatFits(size: CValue<CGSize>): CValue<CGSize> {

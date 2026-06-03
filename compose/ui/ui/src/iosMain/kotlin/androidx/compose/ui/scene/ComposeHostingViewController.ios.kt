@@ -53,11 +53,18 @@ internal class ComposeHostingViewController(
         content = content,
         coroutineContext = coroutineContext,
         lifecycleDelegate = lifecycleDelegate
-    )
+    ).also {
+        it.view.onIntrinsicContentSizeInvalidated = {
+            onIntrinsicContentSizeInvalidated?.invoke()
+        }
+    }
 
     // Used for testing
     val rootRedrawer: MetalRedrawer? get() = container.view.redrawer
     fun hasInvalidations(): Boolean = container.hasInvalidations()
+    // Invoked when this hosting view invalidates its intrinsic size.
+    // Kept as an internal test hook to assert SwiftUI/UIKit relayout signaling.
+    var onIntrinsicContentSizeInvalidated: (() -> Unit)? = null
 
     @Suppress("DEPRECATION")
     override fun preferredStatusBarStyle(): UIStatusBarStyle =
