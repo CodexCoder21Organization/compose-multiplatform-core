@@ -25,9 +25,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.scene.ComposeHostingView
 import androidx.compose.ui.test.UIKitInstrumentedTest
 import androidx.compose.ui.test.runUIKitInstrumentedTestInHostingView
+import androidx.compose.ui.test.runUIKitInstrumentedTestInHostingViewController
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dpSize
@@ -40,10 +40,21 @@ import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.CGSize
 import platform.CoreGraphics.CGSizeMake
+import platform.UIKit.UIView
+import platform.UIKit.UIViewController
 import platform.UIKit.UIViewNoIntrinsicMetric
+import platform.UIKit.addChildViewController
+import platform.UIKit.didMoveToParentViewController
+
+internal enum class ComposeUIViewHost {
+    HostingView,
+    HostingViewController
+}
 
 @OptIn(ExperimentalForeignApi::class, ExperimentalComposeUiApi::class)
-class ComposeUIViewSizingTest {
+internal abstract class BaseComposeUIViewSizingTest(
+    private val host: ComposeUIViewHost
+) {
     private val contentSize = DpSize(200.dp, 100.dp)
 
     @Test
@@ -79,17 +90,17 @@ class ComposeUIViewSizingTest {
 
     @Test
     fun testBoundedWidthAndUnboundedHeight() = testComposeUIViewSizing(
-            content = { Box(Modifier.size(contentSize)) },
-            proposal = CGSizeMake(150.0, UIViewNoIntrinsicMetric),
-            expected = DpSize(150.dp, 100.dp)
-        )
+        content = { Box(Modifier.size(contentSize)) },
+        proposal = CGSizeMake(150.0, UIViewNoIntrinsicMetric),
+        expected = DpSize(150.dp, 100.dp)
+    )
 
     @Test
     fun testUnboundedWidthAndBoundedHeight() = testComposeUIViewSizing(
-            content = { Box(Modifier.size(contentSize)) },
-            proposal = CGSizeMake(UIViewNoIntrinsicMetric, 60.0),
-            expected = DpSize(200.dp, 60.dp)
-        )
+        content = { Box(Modifier.size(contentSize)) },
+        proposal = CGSizeMake(UIViewNoIntrinsicMetric, 60.0),
+        expected = DpSize(200.dp, 60.dp)
+    )
 
     @Test
     fun testBothAxesUnbounded() = testComposeUIViewSizing(
@@ -213,10 +224,9 @@ class ComposeUIViewSizingTest {
             waitForExpectedSize(context, expandedExpected, "initial bounded proposal state")
 
             expanded.value = false
-            println("Change expanded to false")
             waitForIdle()
 
-            waitForExpectedSize(context, collapsedExpected, "expanded bounded proposal state")
+            waitForExpectedSize(context, collapsedExpected, "collapsed bounded proposal state")
         }
     }
 
@@ -248,14 +258,22 @@ class ComposeUIViewSizingTest {
     }
 
     private fun runComposeUIViewSizingTest(
+        testBlock: UIKitInstrumentedTest.() -> Unit
+    ) {
+        when (host) {
+            ComposeUIViewHost.HostingView -> runUIKitInstrumentedTestInHostingView(testBlock)
+            ComposeUIViewHost.HostingViewController ->
+                runUIKitInstrumentedTestInHostingViewController(testBlock)
+        }
+    }
+
+    private fun runComposeUIViewSizingTest(
         content: @Composable () -> Unit,
         runTest: UIKitInstrumentedTest.(SwiftUISimulationContext) -> Unit
-    ) = runUIKitInstrumentedTestInHostingView {
+    ) = runComposeUIViewSizingTest {
         var composeSceneSize: DpSize? = null
 
-        setContent(
-            waitForIdle = false
-        ) {
+        val columnContent = @Composable {
             Column(
                 modifier = Modifier.onGloballyPositioned { coordinates ->
                     composeSceneSize = coordinates.boundsInWindow().toDpRect(density).size
@@ -264,25 +282,59 @@ class ComposeUIViewSizingTest {
             )
         }
 
+        val rootViewController = UIViewController()
+
+        val composeHostView = if (useHostingView) {
+            val hostingView = createHostingView(content = columnContent).also {
+                rootViewController.view.addSubview(it)
+            }
+            ComposeHostView(
+                view = hostingView,
+                setIntrinsicContentSizeInvalidationHandler = {
+                    hostingView.onIntrinsicContentSizeInvalidated = it
+                }
+            )
+        } else {
+            val hostingViewController = createHostingViewController(content = columnContent).also {
+                rootViewController.addChildViewController(it)
+                rootViewController.view.addSubview(it.view)
+                it.didMoveToParentViewController(rootViewController)
+            }
+            ComposeHostView(
+                view = hostingViewController.view,
+                setIntrinsicContentSizeInvalidationHandler = {
+                    hostingViewController.onIntrinsicContentSizeInvalidated = it
+                }
+            )
+        }
+
+        appDelegate.setUpWindow(rootViewController)
+
         this.runTest(
             SwiftUISimulationContext(
-                hostingView!!,
-                { composeSceneSize }
+                composeHostView = composeHostView,
+                getComposeContentSize = { composeSceneSize }
             )
         )
     }
 
+    private class ComposeHostView(
+        val view: UIView,
+        val setIntrinsicContentSizeInvalidationHandler: (() -> Unit) -> Unit
+    )
+
     private class SwiftUISimulationContext(
-        val composeView: ComposeHostingView,
+        val composeHostView: ComposeHostView,
         private val getComposeContentSize: () -> DpSize?
     ) {
+        val composeView: UIView get() = composeHostView.view
         val composeContentSize: DpSize? get() = getComposeContentSize()
         val composeUIViewSize: DpSize get() = composeView.frame.dpSize()
 
         private var lastSwiftUIConstraints: CValue<CGSize>? = null
 
         init {
-            composeView.onIntrinsicContentSizeInvalidated = {
+            composeHostView.setIntrinsicContentSizeInvalidationHandler {
                 if (lastSwiftUIConstraints != null) {
                     proposeSwiftUIConstraints(lastSwiftUIConstraints!!)
                 }
@@ -295,7 +347,7 @@ class ComposeUIViewSizingTest {
             composeView.applyFrame(sizeThatFits)
         }
 
-        private fun ComposeHostingView.applyFrame(size: CValue<CGSize>) {
+        private fun UIView.applyFrame(size: CValue<CGSize>) {
             size.useContents {
                 setFrame(CGRectMake(0.0, 0.0, width, height))
             }
@@ -328,8 +380,17 @@ class ComposeUIViewSizingTest {
                     context.composeUIViewSize == expected
             }
         } catch (e: Throwable) {
-            println("composeContentSize ${context.composeContentSize}, composeUIViewSize ${context.composeUIViewSize}, expected $expected")
+            println(
+                "composeContentSize ${context.composeContentSize}, " +
+                    "composeUIViewSize ${context.composeUIViewSize}, expected $expected"
+            )
             throw e
         }
     }
 }
+
+internal class ComposeUIViewSizingInHostingViewTest :
+    BaseComposeUIViewSizingTest(ComposeUIViewHost.HostingView)
+
+internal class ComposeUIViewSizingInHostingViewControllerTest :
+    BaseComposeUIViewSizingTest(ComposeUIViewHost.HostingViewController)
