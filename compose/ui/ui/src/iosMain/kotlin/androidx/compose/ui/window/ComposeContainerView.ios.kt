@@ -16,6 +16,7 @@
 
 package androidx.compose.ui.window
 
+import androidx.compose.ui.node.WeakReference
 import androidx.compose.ui.unit.toDpSize
 import kotlin.math.max
 import kotlinx.cinterop.CValue
@@ -55,10 +56,9 @@ internal class ComposeContainerView(
     private var onWillMoveToWindow: (UIWindow?) -> Unit = {}
     private var onLayoutSubviews: () -> Unit = {}
     private var foregroundStateListener: SceneForegroundStateListener? = null
-
+    private var onIntrinsicContentSizeInvalidated: (() -> Unit)? = null
     var onSizeThatFits: (CValue<CGSize>) -> CValue<CGSize>? = { null }
     var onIntrinsicContentSize: () -> CValue<CGSize>? = { null }
-    var onIntrinsicContentSizeInvalidated: (() -> Unit)? = null
 
     val redrawer: MetalRedrawer? get() = metalView?.redrawer
 
@@ -289,6 +289,16 @@ internal class ComposeContainerView(
         val renderer = UIGraphicsImageRenderer(bounds = bounds)
         return renderer.imageWithActions {
             this.drawViewHierarchyInRect(bounds, false)
+        }
+    }
+
+    fun <T : Any> setIntrinsicContentSizeInvalidationHandler(
+        owner: T,
+        handler: T.() -> Unit
+    ) {
+        val ownerRef = WeakReference(owner)
+        onIntrinsicContentSizeInvalidated = {
+            ownerRef.get()?.handler()
         }
     }
 }

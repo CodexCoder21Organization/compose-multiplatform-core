@@ -51,7 +51,7 @@ internal class ComposeHostingView(
         coroutineContext = coroutineContext,
         lifecycleDelegate = lifecycleDelegate
     ).also {
-        it.view.onIntrinsicContentSizeInvalidated = {
+        it.view.setIntrinsicContentSizeInvalidationHandler(this) {
             invalidateIntrinsicContentSize()
         }
     }

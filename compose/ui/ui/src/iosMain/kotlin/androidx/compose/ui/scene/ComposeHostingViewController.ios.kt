@@ -54,7 +54,7 @@ internal class ComposeHostingViewController(
         coroutineContext = coroutineContext,
         lifecycleDelegate = lifecycleDelegate
     ).also {
-        it.view.onIntrinsicContentSizeInvalidated = {
+        it.view.setIntrinsicContentSizeInvalidationHandler(this) {
             onIntrinsicContentSizeInvalidated?.invoke()
         }
     }
