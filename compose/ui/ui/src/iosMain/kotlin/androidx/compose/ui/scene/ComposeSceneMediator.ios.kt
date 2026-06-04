@@ -764,7 +764,7 @@ internal class ComposeSceneMediator(
     fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle =
         scene.registerOnLayoutCompletedListener(listener)
 
-    fun constrainedSceneSize(constraints: Constraints): IntSize = scene.constrainedSize(constraints)
+    fun measureSceneSize(constraints: Constraints): IntSize = scene.measureContent(constraints)
 
     /**
      * Converts [UIPress] objects to [KeyEvent] and dispatches them to the appropriate handlers.

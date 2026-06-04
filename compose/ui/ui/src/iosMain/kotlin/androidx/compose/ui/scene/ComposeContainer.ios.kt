@@ -127,7 +127,7 @@ internal class ComposeContainer(
     private val composeSceneSizeSynchronizer: ComposeSceneSizeSynchronizer =
         ComposeSceneSizeSynchronizer(
             view = view,
-            composeSceneSize = { mediator?.constrainedSceneSize(it) },
+            composeSceneSize = { mediator?.measureSceneSize(it) },
             invalidateComposeSceneContainerSize = view::invalidateIntrinsicContentSize
         )
 
