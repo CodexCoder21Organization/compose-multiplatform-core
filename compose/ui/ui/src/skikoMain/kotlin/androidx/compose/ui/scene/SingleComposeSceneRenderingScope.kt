@@ -46,7 +46,7 @@ class SingleComposeSceneRenderingScope(
     @PublishedApi
     internal var isRendering = false
 
-    inline fun postponingSceneInvalidations(block: () -> Unit) {
+    inline fun postponingSceneInvalidations(crossinline block: () -> Unit) {
         check(!isRendering)
         isRendering = true
         try {
