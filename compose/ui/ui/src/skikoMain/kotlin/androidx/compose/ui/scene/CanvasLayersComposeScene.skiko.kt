@@ -36,7 +36,6 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerInputEvent
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.rotary.RotaryScrollEvent
-import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.node.RootNodeOwner
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.PlatformContext
@@ -215,11 +214,6 @@ private class CanvasLayersComposeSceneImpl(
             height = max(height, layerSize.height)
         }
         return IntSize(width, height)
-    }
-
-    override fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle {
-        check(!isClosed) { "registerOnLayoutCompletedListener called after ComposeScene is closed" }
-        return mainOwner.registerOnLayoutCompletedListener(listener)
     }
 
     override fun invalidatePositionInWindow() {

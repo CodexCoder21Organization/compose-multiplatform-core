@@ -161,7 +161,6 @@ internal class RootNodeOwner(
     private val ownedLayerManager = OwnedLayerManagerImpl()
     private val pointerInputEventProcessor = PointerInputEventProcessor(owner.root)
     private val measureAndLayoutDelegate = MeasureAndLayoutDelegate(owner.root)
-    private var layoutCompletedManager: LayoutCompletedManager? = null
     private var isDisposed = false
 
     private var positionInWindow: Offset? = null
@@ -230,46 +229,7 @@ internal class RootNodeOwner(
 
             return block(owner.root)
         } finally {
-            val hadPendingBeforeRestore = measureAndLayoutDelegate.hasPendingMeasureOrLayout
-            val restoreConstraints = size.toMaxConstraints()
-            val constraintsChanged = restoreConstraints != constraints
-
-            measureAndLayoutDelegate.updateRootConstraints(restoreConstraints)
-
-            val hasPendingAfterRestore = measureAndLayoutDelegate.hasPendingMeasureOrLayout
-            if (constraintsChanged && !hadPendingBeforeRestore && hasPendingAfterRestore) {
-                // Probe measurement temporarily swaps root constraints. Restoring them may enqueue
-                // a rebound layout pass; suppress its layout-complete dispatch to avoid re-entrancy
-                // for observers that initiated this probe measurement.
-                layoutCompletedManager?.suppressNextDispatch()
-            }
-        }
-    }
-
-    /**
-     * Registers an additional persistent layout-complete listener.
-     *
-     * Unlike [MeasureAndLayoutDelegate.registerOnLayoutCompletedListener], this listener is not
-     * one-shot: it remains active for later layout passes until the returned handle is
-     * unregistered.
-     */
-    fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle {
-        if (layoutCompletedManager == null) {
-            layoutCompletedManager = LayoutCompletedManager()
-        }
-        layoutCompletedManager?.registerListener(listener)
-
-        return object : OnLayoutCompletedListenerHandle {
-            private var isUnregistered = false
-
-            override fun unregister() {
-                if (isUnregistered) return
-                isUnregistered = true
-                layoutCompletedManager?.deregisterListener(listener)
-                if (layoutCompletedManager?.isEmpty == true) {
-                    layoutCompletedManager = null
-                }
-            }
+            measureAndLayoutDelegate.updateRootConstraints(size.toMaxConstraints())
         }
     }
 
@@ -604,7 +564,6 @@ internal class RootNodeOwner(
                     }
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
                     rectManager.dispatchCallbacks()
-                    layoutCompletedManager?.dispatch()
                 }
             }
         }
@@ -620,7 +579,6 @@ internal class RootNodeOwner(
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
                 }
                 rectManager.dispatchCallbacks()
-                layoutCompletedManager?.dispatch()
             }
         }
 
@@ -1110,51 +1068,5 @@ private class RootPlatformWindowInsetsProviderNode(
             insets = windowInsets
             windowInsetsInvalidated()
         }
-    }
-}
-
-@InternalComposeUiApi
-fun interface OnLayoutCompletedListenerHandle {
-    /** Unregisters the associated listener. Calling this multiple times is a no-op. */
-    fun unregister()
-}
-
-private class LayoutCompletedManager {
-    private var suppressed: Int = 0
-    private var listeners = mutableVectorOf<(() -> Unit)?>()
-    private var activeListenersCount: Int = 0
-    val isEmpty: Boolean get() = activeListenersCount == 0
-
-    fun suppressNextDispatch() {
-        suppressed++
-    }
-
-    fun registerListener(listener: () -> Unit) {
-        // Use referential equality: multiple distinct function instances may be "equal" but
-        // must still be treated as separate registrations.
-        for (i in 0 until listeners.size) {
-            if (listeners[i] === listener) return
-        }
-
-        listeners += listener
-        activeListenersCount++
-    }
-
-    fun deregisterListener(listener: () -> Unit) {
-        for (i in 0 until listeners.size) {
-            if (listeners[i] === listener) {
-                listeners[i] = null
-                activeListenersCount--
-                break
-            }
-        }
-    }
-
-    fun dispatch() {
-        if (suppressed > 0) {
-            suppressed--
-            return
-        }
-        listeners.forEach { it?.invoke() }
     }
 }

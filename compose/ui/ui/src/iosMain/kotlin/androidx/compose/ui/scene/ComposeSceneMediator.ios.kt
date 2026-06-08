@@ -46,7 +46,6 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.OffsetToFocusedRect
 import androidx.compose.ui.navigationevent.UIKitNavigationEventInput
-import androidx.compose.ui.node.OnLayoutCompletedListenerHandle
 import androidx.compose.ui.platform.AccessibilityMediator
 import androidx.compose.ui.platform.CUPERTINO_TOUCH_SLOP
 import androidx.compose.ui.platform.DefaultInputModeManager
@@ -208,8 +207,8 @@ internal class ComposeSceneMediator(
     ) -> ComposeScene,
 ) {
     private var onPreviewKeyEvent: (KeyEvent) -> Boolean = { false }
-
     private var onKeyEvent: (KeyEvent) -> Boolean = { false }
+    private var onLayoutCompleted: (() -> Unit) = {}
     private var animateKeyboardOffsetChanges by mutableStateOf(false)
     private var platformScreenReader = object : PlatformScreenReader {
         override var isActive by mutableStateOf(false)
@@ -238,7 +237,10 @@ internal class ComposeSceneMediator(
     //    by platform view invalidation (which is triggered by [scene.invalidateLayout] OR by regular platform invalidation)
     //  - [scene.draw] during drawing phase of platform views (which is triggered by [scene.invalidateDraw]).
     //    Note that in case of custom GPU surface/V-Sync handling, it needs to be handled differently.
-    private val sceneRenderingScope = SingleComposeSceneRenderingScope(redrawer::setNeedsRedraw)
+    private val sceneRenderingScope = SingleComposeSceneRenderingScope(
+        redrawer::setNeedsRedraw,
+        onDidLayout = { onLayoutCompleted() }
+    )
 
     private val scene: ComposeScene by lazy {
         composeSceneFactory(
@@ -761,8 +763,13 @@ internal class ComposeSceneMediator(
         this.onKeyEvent = onKeyEvent ?: { false }
     }
 
-    fun registerOnLayoutCompletedListener(listener: () -> Unit): OnLayoutCompletedListenerHandle =
-        scene.registerOnLayoutCompletedListener(listener)
+    /**
+     * Sets the single callback invoked after the scene measure/layout phase during rendering.
+     * Passing `null` clears the current callback.
+     */
+    fun setOnLayoutCompletedListener(listener: (() -> Unit)?) {
+        onLayoutCompleted = listener ?: {}
+    }
 
     fun measureSceneSize(constraints: Constraints): IntSize = scene.measureContent(constraints)
 
