@@ -222,12 +222,11 @@ internal class RootNodeOwner(
         constraints: Constraints,
         block: (LayoutNode) -> T
     ): T {
-        try {
+        return try {
             // TODO: is it possible to measure without reassigning root constraints?
             measureAndLayoutDelegate.updateRootConstraints(constraints)
             measureAndLayoutDelegate.measureOnly()
-
-            return block(owner.root)
+            block(owner.root)
         } finally {
             measureAndLayoutDelegate.updateRootConstraints(size.toMaxConstraints())
         }
