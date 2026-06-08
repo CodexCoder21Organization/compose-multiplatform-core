@@ -266,10 +266,8 @@ internal class UIKitInstrumentedTest(
     val accessibilityNotifications = mutableListOf<AccessibilityNotification>()
     val lastAccessibilityNotification: AccessibilityNotification?
         get() = accessibilityNotifications.lastOrNull()
-    var hostingViewController: ComposeHostingViewController? = null
-        private set
-    var hostingView: ComposeHostingView? = null
-        private set
+    private var hostingViewController: ComposeHostingViewController? = null
+    private var hostingView: ComposeHostingView? = null
 
     val viewController: UIViewController get() =
         appDelegate.window?.rootViewController ?: error("Cannot find active UIViewController")
