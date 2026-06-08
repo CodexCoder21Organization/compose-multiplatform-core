@@ -996,50 +996,6 @@ internal class RootNodeOwner(
 private fun IntSize?.toMaxConstraints() =
     if (this == null) Constraints() else Constraints(maxWidth = width, maxHeight = height)
 
-// TODO a proper way is to provide API in Constraints to get this value
-/**
- * Equals [Constraints.MinNonFocusMask]
- */
-private const val ConstraintsMinNonFocusMask = 0x7FFF // 32767
-
-/**
- * The max value that can be passed as Constraints(0, LargeDimension, 0, LargeDimension)
- *
- * Greater values cause "Can't represent a width of".
- * See [Constraints.createConstraints] and [Constraints.bitsNeedForSize]:
- *  - it fails if `widthBits + heightBits > 31`
- *  - widthBits/heightBits are greater than 15 if we pass size >= [Constraints.MinNonFocusMask]
- */
-internal const val LargeDimension = ConstraintsMinNonFocusMask - 1
-
-/**
- * After https://android-review.googlesource.com/c/platform/frameworks/support/+/2901556
- * Compose core doesn't allow measuring in infinity constraints,
- * but RootNodeOwner and ComposeScene allow passing Infinity constraints by contract
- * (Android on the other hand doesn't have public API for that and don't have such an issue).
- *
- * This method adds additional check on Infinity constraints,
- * and pass constraint large enough instead
- */
-private fun MeasureAndLayoutDelegate.updateRootConstraintsWithInfinityCheck(
-    constraints: Constraints?
-) {
-    updateRootConstraints(constraints = constraints.withInfinityCheck())
-}
-
-private fun Constraints?.withInfinityCheck(): Constraints =
-    if (this == null)
-        Constraints(0, LargeDimension, 0, LargeDimension)
-    else
-        Constraints(
-            minWidth = minWidth,
-            maxWidth = if (hasBoundedWidth) maxWidth else LargeDimension,
-            minHeight = minHeight,
-            maxHeight = if (hasBoundedHeight) maxHeight else LargeDimension
-        )
-
-private fun IntSize.toConstraints() = Constraints(maxWidth = width, maxHeight = height)
-
 private object IdentityPositionCalculator : PositionCalculator {
     override fun screenToLocal(positionOnScreen: Offset): Offset = positionOnScreen
     override fun localToScreen(localPosition: Offset): Offset = localPosition
