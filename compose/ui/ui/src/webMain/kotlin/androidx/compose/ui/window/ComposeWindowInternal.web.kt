@@ -230,7 +230,7 @@ internal class ComposeWindow(
     //    by platform view invalidation (which is triggered by [scene.invalidateLayout] OR by regular platform invalidation)
     //  - [scene.draw] during drawing phase of platform views (which is triggered by [scene.invalidateDraw]).
     //    Note that in case of custom GPU surface/V-Sync handling, it needs to be handled differently.
-    private val sceneRenderingScope = SingleComposeSceneRenderingScope { skiaLayer.needRender() }
+    private val sceneRenderingScope = SingleComposeSceneRenderingScope(scheduleFrame = { skiaLayer.needRender() })
 
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {

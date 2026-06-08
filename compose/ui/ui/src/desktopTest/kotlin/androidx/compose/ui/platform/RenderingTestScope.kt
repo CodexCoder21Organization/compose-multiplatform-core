@@ -58,7 +58,7 @@ internal class RenderingTestScope(
         onRender(currentTimeMillis * 1_000_000)
     }
     private val frameRecomposer = FrameRecomposer(coroutineContext, frameDispatcher::scheduleFrame)
-    private val sceneRenderingScope = SingleComposeSceneRenderingScope(frameDispatcher::scheduleFrame)
+    private val sceneRenderingScope = SingleComposeSceneRenderingScope(scheduleFrame = frameDispatcher::scheduleFrame)
 
     val surface: Surface = Surface.makeRasterN32Premul(width, height)
     private val canvas = surface.canvas.asComposeCanvas()
