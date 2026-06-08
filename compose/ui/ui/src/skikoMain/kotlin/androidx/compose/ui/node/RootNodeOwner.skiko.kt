@@ -212,11 +212,8 @@ internal class RootNodeOwner(
     }
 
     /**
-     * Runs a temporary *measure-only* pass for the root under the provided [constraints], then
-     * executes [block] while those constraints are in effect.
-     *
-     * This is a probe measurement: it does not place nodes and does not dispatch draw/pointer
-     * callbacks.
+     * Provides a way to measure Owner's content in given [constraints]
+     * Draw/pointer and other callbacks won't be called here like in [measureAndLayout] functions
      */
     private fun <T> measuringRootWithConstraints(
         constraints: Constraints,
