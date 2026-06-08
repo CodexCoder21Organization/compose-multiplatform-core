@@ -23,6 +23,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.draganddrop.UIKitDragAndDropManager
 import androidx.compose.ui.geometry.Offset
@@ -237,10 +238,7 @@ internal class ComposeSceneMediator(
     //    by platform view invalidation (which is triggered by [scene.invalidateLayout] OR by regular platform invalidation)
     //  - [scene.draw] during drawing phase of platform views (which is triggered by [scene.invalidateDraw]).
     //    Note that in case of custom GPU surface/V-Sync handling, it needs to be handled differently.
-    private val sceneRenderingScope = SingleComposeSceneRenderingScope(
-        redrawer::setNeedsRedraw,
-        onDidLayout = { onLayoutCompleted() }
-    )
+    private val sceneRenderingScope = SingleComposeSceneRenderingScope(redrawer::setNeedsRedraw)
 
     private val scene: ComposeScene by lazy {
         composeSceneFactory(
@@ -643,8 +641,23 @@ internal class ComposeSceneMediator(
     private var lastRenderTime = CACurrentMediaTime().toNanoSeconds()
     fun render(canvas: Canvas, nanoTime: Long) {
         lastRenderTime = nanoTime
-        with(sceneRenderingScope) {
-            scene.render(frameRecomposer, canvas, nanoTime)
+        scene.render(canvas, nanoTime)
+    }
+
+    /**
+     * Renders the current content on [canvas]: advances the host [frameRecomposer] by one frame,
+     * then runs the scene's measure/layout and draw phases. [nanoTime] is the frame time used to
+     * drive all animations in the content (and any other code using [withFrameNanos]).
+     */
+    private fun ComposeScene.render(canvas: Canvas, nanoTime: Long) {
+        sceneRenderingScope.postponingSceneInvalidations {
+            frameRecomposer.performFrame(nanoTime)
+            measureAndLayout()
+            onLayoutCompleted()
+            draw(canvas)
+        }
+        if (hasInvalidations()) {
+            redrawer.setNeedsRedraw()
         }
     }
 

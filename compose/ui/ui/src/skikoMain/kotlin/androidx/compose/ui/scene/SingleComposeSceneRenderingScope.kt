@@ -42,11 +42,10 @@ import androidx.compose.ui.platform.FrameRecomposer
 @InternalComposeUiApi
 class SingleComposeSceneRenderingScope(
     private val scheduleFrame: () -> Unit,
-    private val onDidLayout: () -> Unit = {},
 ) {
     private var isRendering = false
 
-    private inline fun postponingSceneInvalidations(crossinline block: () -> Unit) {
+    fun postponingSceneInvalidations(block: () -> Unit) {
         check(!isRendering)
         isRendering = true
         try {
@@ -75,7 +74,6 @@ class SingleComposeSceneRenderingScope(
         postponingSceneInvalidations {
             frameRecomposer.performFrame(nanoTime)
             measureAndLayout()
-            onDidLayout()
             draw(canvas)
         }
         if (hasInvalidations()) {
