@@ -326,4 +326,6 @@ fun ComposeScene.hasInvalidations(): Boolean =
  * size bounds (e.g., LazyColumn without maximum height).
  */
 @InternalComposeUiApi
-fun ComposeScene.unconstrainedSize(): IntSize = measureContent(Constraints())
+fun ComposeScene.unconstrainedSize(): IntSize {
+    return measureContent(Constraints())
+}
