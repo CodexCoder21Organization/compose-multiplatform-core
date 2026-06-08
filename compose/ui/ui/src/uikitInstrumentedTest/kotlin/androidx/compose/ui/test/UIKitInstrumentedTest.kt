@@ -107,6 +107,8 @@ import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
+internal typealias UIKitInstrumentedTestBlock = UIKitInstrumentedTest.() -> Unit
+
 /**
  * Sets up the test environment for iOS instrumented tests, runs the given [test][testBlock] against
  * UIView- and UIViewController-based Compose Container.
@@ -115,12 +117,12 @@ import platform.darwin.dispatch_get_main_queue
  * assertions on it.
  * @param [testBlock] The test function.
  */
-internal fun runUIKitInstrumentedTest(testBlock: UIKitInstrumentedTest.() -> Unit) {
+internal fun runUIKitInstrumentedTest(testBlock: UIKitInstrumentedTestBlock) {
     runUIKitInstrumentedTestInHostingView(testBlock)
     runUIKitInstrumentedTestInHostingViewController(testBlock)
 }
 
-internal fun runUIKitInstrumentedTestInHostingView(testBlock: UIKitInstrumentedTest.() -> Unit) {
+internal fun runUIKitInstrumentedTestInHostingView(testBlock: UIKitInstrumentedTestBlock) {
     println("Debug: Running test with ComposeHostingView")
     with(UIKitInstrumentedTest(useHostingView = true)) {
         try {
@@ -131,7 +133,7 @@ internal fun runUIKitInstrumentedTestInHostingView(testBlock: UIKitInstrumentedT
     }
 }
 
-internal fun runUIKitInstrumentedTestInHostingViewController(testBlock: UIKitInstrumentedTest.() -> Unit) {
+internal fun runUIKitInstrumentedTestInHostingViewController(testBlock: UIKitInstrumentedTestBlock) {
     println("Debug: Running test with ComposeHostingViewController")
     with(UIKitInstrumentedTest(useHostingView = false)) {
         try {
@@ -194,7 +196,7 @@ internal fun <T> runUIKitInstrumentedTest(
 internal fun runUIKitInstrumentedTest(
     ignoreIf: Boolean,
     ignoreNotes: String,
-    testBlock: UIKitInstrumentedTest.() -> Unit
+    testBlock: UIKitInstrumentedTestBlock
 ) {
     if (ignoreIf) {
         println("Debug: Ignored test: $ignoreNotes")

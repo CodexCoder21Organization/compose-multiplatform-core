@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.test.UIKitInstrumentedTest
+import androidx.compose.ui.test.UIKitInstrumentedTestBlock
 import androidx.compose.ui.test.runUIKitInstrumentedTestInHostingView
 import androidx.compose.ui.test.runUIKitInstrumentedTestInHostingViewController
 import androidx.compose.ui.unit.DpSize
@@ -46,14 +47,9 @@ import platform.UIKit.UIViewNoIntrinsicMetric
 import platform.UIKit.addChildViewController
 import platform.UIKit.didMoveToParentViewController
 
-internal enum class ComposeUIViewHost {
-    HostingView,
-    HostingViewController
-}
-
 @OptIn(ExperimentalForeignApi::class, ExperimentalComposeUiApi::class)
 internal abstract class BaseComposeUIViewSizingTest(
-    private val host: ComposeUIViewHost
+    private val runTest: (UIKitInstrumentedTestBlock) -> Unit
 ) {
     private val contentSize = DpSize(200.dp, 100.dp)
 
@@ -258,19 +254,9 @@ internal abstract class BaseComposeUIViewSizingTest(
     }
 
     private fun runComposeUIViewSizingTest(
-        testBlock: UIKitInstrumentedTest.() -> Unit
-    ) {
-        when (host) {
-            ComposeUIViewHost.HostingView -> runUIKitInstrumentedTestInHostingView(testBlock)
-            ComposeUIViewHost.HostingViewController ->
-                runUIKitInstrumentedTestInHostingViewController(testBlock)
-        }
-    }
-
-    private fun runComposeUIViewSizingTest(
         content: @Composable () -> Unit,
         runTest: UIKitInstrumentedTest.(SwiftUISimulationContext) -> Unit
-    ) = runComposeUIViewSizingTest {
+    ) = runTest {
         var composeSceneSize: DpSize? = null
 
         val columnContent = @Composable {
@@ -389,8 +375,13 @@ internal abstract class BaseComposeUIViewSizingTest(
     }
 }
 
+// All tests in BaseComposeUIViewSizingTest should be run for both hosts ComposeHostingView and
+// ComposeHostingViewController. We need to run each test as a separate XCTest and to achieve this
+// we create two implementations of BaseComposeUIViewSizingTest where each implementation uses a
+// different way to run the test. This method avoids code duplication but mainly it avoids flaky
+// tests because setContent and therefore appDelegate.setUpWindow is only called once for each XCTest.
 internal class ComposeUIViewSizingInHostingViewTest :
-    BaseComposeUIViewSizingTest(ComposeUIViewHost.HostingView)
+    BaseComposeUIViewSizingTest(::runUIKitInstrumentedTestInHostingView)
 
 internal class ComposeUIViewSizingInHostingViewControllerTest :
-    BaseComposeUIViewSizingTest(ComposeUIViewHost.HostingViewController)
+    BaseComposeUIViewSizingTest(::runUIKitInstrumentedTestInHostingViewController)
