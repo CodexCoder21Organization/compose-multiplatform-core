@@ -43,9 +43,10 @@ import androidx.compose.ui.platform.FrameRecomposer
 class SingleComposeSceneRenderingScope(
     private val scheduleFrame: () -> Unit,
 ) {
-    private var isRendering = false
+    @PublishedApi
+    internal var isRendering = false
 
-    fun postponingSceneInvalidations(block: () -> Unit) {
+    inline fun postponingSceneInvalidations(block: () -> Unit) {
         check(!isRendering)
         isRendering = true
         try {
