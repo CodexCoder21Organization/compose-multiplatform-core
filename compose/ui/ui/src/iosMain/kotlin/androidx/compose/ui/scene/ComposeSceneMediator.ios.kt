@@ -238,7 +238,7 @@ internal class ComposeSceneMediator(
     //  - [scene.draw] during drawing phase of platform views (which is triggered by [scene.invalidateDraw]).
     //    Note that in case of custom GPU surface/V-Sync handling, it needs to be handled differently.
     private val sceneRenderingScope = SingleComposeSceneRenderingScope(
-        scheduleFrame = redrawer::setNeedsRedraw,
+        redrawer::setNeedsRedraw,
         onDidLayout = { onLayoutCompleted() }
     )
 
