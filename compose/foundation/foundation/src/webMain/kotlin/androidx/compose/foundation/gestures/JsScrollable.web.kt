@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFold
+import kotlin.js.ExperimentalWasmJsInterop
+import kotlin.js.js
+import kotlin.math.abs
 import kotlinx.browser.document
 import kotlinx.browser.window
 import org.w3c.dom.HTMLElement
@@ -61,10 +64,112 @@ private object JsConfig : ScrollConfig {
             else -> event.totalScrollDelta * -1.dp.toPx()
         }
     }
+
+    // Information about the previously processed wheel event, used to disambiguate
+    // trackpad gestures from mouse wheel ticks (see [isTrackpadEvent]).
+    private var lastWheelEvent: LastWheelEvent? = null
+    private var lastWheelEventWasTrackpad = false
+
+    override fun isPreciseWheelScroll(event: PointerEvent): Boolean {
+        val wheelEvent = event.nativeEvent as? WheelEvent ?: return false
+        val isTrackpad = isTrackpadEvent(wheelEvent)
+        lastWheelEvent =
+            LastWheelEvent(
+                deltaX = wheelEvent.deltaX,
+                deltaY = wheelEvent.deltaY,
+                timeStamp = wheelEvent.timeStamp.toDouble(),
+            )
+        lastWheelEventWasTrackpad = isTrackpad
+        return isTrackpad
+    }
+
+    /**
+     * Heuristically detects whether a wheel event comes from a high-resolution input device
+     * (a trackpad or a freely rotating, notch-less wheel) rather than a regular stepping
+     * mouse wheel. High-resolution input should be applied immediately, while a stepping
+     * wheel animates between ticks.
+     *
+     * This mirrors Flutter web's `_isTrackpadEvent` (flutter/engine:
+     * lib/web_ui/lib/src/engine/pointer_binding.dart). It relies on non-standard, deprecated
+     * properties (`wheelDeltaX`/`wheelDeltaY`); see that file for reference material.
+     */
+    private fun isTrackpadEvent(event: WheelEvent): Boolean {
+        // Firefox restricts the legacy wheelDelta properties, so they don't provide enough
+        // information to reliably disambiguate trackpad events from mouse wheel events.
+        if (isFirefox) {
+            return false
+        }
+        val wheelDeltaX = legacyWheelDeltaX(event).takeUnless { it.isNaN() }
+        val wheelDeltaY = legacyWheelDeltaY(event).takeUnless { it.isNaN() }
+        if (
+            isAcceleratedMouseWheelDelta(event.deltaX, wheelDeltaX) ||
+                isAcceleratedMouseWheelDelta(event.deltaY, wheelDeltaY)
+        ) {
+            return false
+        }
+        // While not in any formal web standard, Blink and WebKit browsers use a delta of 120
+        // to represent one mouse wheel turn. If both axes of the delta (or of wheelDelta) are
+        // divisible by 120, this event is probably from a mouse.
+        val looksLikeMouseTick =
+            (event.deltaX % 120.0 == 0.0 && event.deltaY % 120.0 == 0.0) ||
+                ((wheelDeltaX ?: 1.0) % 120.0 == 0.0 && (wheelDeltaY ?: 1.0) % 120.0 == 0.0)
+        if (looksLikeMouseTick) {
+            val last = lastWheelEvent
+            val deltaXChange = abs(event.deltaX - (last?.deltaX ?: 0.0))
+            val deltaYChange = abs(event.deltaY - (last?.deltaY ?: 0.0))
+            // A trackpad event might by chance have a delta of exactly 120, so make sure this
+            // event doesn't have a similar delta to the previous one before treating it as a
+            // mouse wheel.
+            if (
+                last == null ||
+                    (deltaXChange == 0.0 && deltaYChange == 0.0) ||
+                    !(deltaXChange < 20.0 && deltaYChange < 20.0)
+            ) {
+                // If a large-delta event was preceded within 50ms by a trackpad event, it is
+                // likely an unlucky 120-delta trackpad event during rapid movement.
+                if (
+                    last != null &&
+                        event.timeStamp.toDouble() - last.timeStamp < 50.0 &&
+                        lastWheelEventWasTrackpad
+                ) {
+                    return true
+                }
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun isAcceleratedMouseWheelDelta(delta: Double, wheelDelta: Double?): Boolean {
+        // On macOS, scrolling with a mouse wheel applies an acceleration curve, so delta
+        // values ramp up and are not fixed multiples of 120, but the wheelDelta property
+        // keeps its original value: by convention three times the delta with the opposite
+        // sign. Allow +-1px error to account for integer truncation.
+        if (wheelDelta == null) return false
+        return abs(wheelDelta - (-3.0 * delta)) > 1.0
+    }
 }
+
+private class LastWheelEvent(val deltaX: Double, val deltaY: Double, val timeStamp: Double)
 
 private val PointerEvent.totalScrollDelta
     get() = this.changes.fastFold(Offset.Zero) { acc, c -> acc + c.scrollDelta }
+
+/** Whether the current browser is Firefox, detected once from the user agent. */
+private val isFirefox: Boolean by lazy { detectFirefox() }
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun detectFirefox(): Boolean = js("/firefox/i.test(window.navigator.userAgent)")
+
+// The legacy wheelDeltaX/wheelDeltaY properties are non-standard and may be absent (e.g. in
+// Firefox), in which case these helpers return NaN to represent an unavailable value.
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun legacyWheelDeltaX(event: WheelEvent): Double =
+    js("(event.wheelDeltaX == null) ? NaN : event.wheelDeltaX")
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun legacyWheelDeltaY(event: WheelEvent): Double =
+    js("(event.wheelDeltaY == null) ? NaN : event.wheelDeltaY")
 
 /** Fallback line height (in dp) used when the browser default font size can't be read. */
 private const val FallbackLineScrollHeight = 16f

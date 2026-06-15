@@ -62,6 +62,62 @@ class WheelEventTests : OnCanvasTests {
     }
 
     @Test
+    fun trackpadWheelScrollIsAppliedImmediately() = runTest {
+        val verticalScrollState = ScrollState(initial = 0)
+
+        createComposeWindow {
+            CompositionLocalProvider(LocalDensity provides Density(2f)) {
+                Box(
+                    modifier = Modifier.size(100.dp).verticalScroll(verticalScrollState)
+                ) {
+                    Column(modifier = Modifier.size(400.dp)) { }
+                }
+            }
+        }
+
+        assertEquals(0, verticalScrollState.value)
+
+        // A delta that is not divisible by 120 looks like high-resolution input (a trackpad
+        // or a freely rotating wheel), so the whole delta must be applied immediately:
+        // 100 * density(2f) = 200px.
+        getCanvas().dispatchEvent(WheelEvent("wheel", WheelEventInit(deltaY = 100.0)))
+
+        assertEquals(
+            200,
+            verticalScrollState.value,
+            "high-resolution wheel scroll should apply immediately"
+        )
+    }
+
+    @Test
+    fun mouseWheelScrollIsAnimated() = runTest {
+        val verticalScrollState = ScrollState(initial = 0)
+
+        createComposeWindow {
+            CompositionLocalProvider(LocalDensity provides Density(2f)) {
+                Box(
+                    modifier = Modifier.size(100.dp).verticalScroll(verticalScrollState)
+                ) {
+                    Column(modifier = Modifier.size(400.dp)) { }
+                }
+            }
+        }
+
+        assertEquals(0, verticalScrollState.value)
+
+        // A delta divisible by 120 looks like a regular stepping mouse wheel tick, so the
+        // scroll is animated: only the animation threshold (6.dp * density(2f) = 12px) is
+        // applied immediately, not the full 120 * density(2f) = 240px.
+        getCanvas().dispatchEvent(WheelEvent("wheel", WheelEventInit(deltaY = 120.0)))
+
+        assertEquals(
+            12,
+            verticalScrollState.value,
+            "stepping mouse wheel scroll should be animated, not applied immediately"
+        )
+    }
+
+    @Test
     fun lineModeWheelScrollIsConvertedToPixels() = runTest {
         val verticalScrollState = ScrollState(initial = 0)
 
