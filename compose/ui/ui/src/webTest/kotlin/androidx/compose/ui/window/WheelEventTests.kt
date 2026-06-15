@@ -62,6 +62,70 @@ class WheelEventTests : OnCanvasTests {
     }
 
     @Test
+    fun lineModeWheelScrollIsConvertedToPixels() = runTest {
+        val verticalScrollState = ScrollState(initial = 0)
+
+        createComposeWindow {
+            CompositionLocalProvider(LocalDensity provides Density(2f)) {
+                Box(
+                    modifier = Modifier.size(100.dp).verticalScroll(verticalScrollState)
+                ) {
+                    Column(modifier = Modifier.size(400.dp)) { }
+                }
+            }
+        }
+
+        assertEquals(0, verticalScrollState.value)
+
+        // A single line-mode delta must scroll by a whole line, not a single pixel.
+        // The default browser font size is 16px, so 1 line * 16px * density(2f) = 32px.
+        getCanvas().dispatchEvent(
+            WheelEvent(
+                "wheel",
+                WheelEventInit(deltaY = 1.0, deltaMode = WheelEvent.DOM_DELTA_LINE)
+            )
+        )
+
+        assertEquals(
+            32,
+            verticalScrollState.value,
+            "line-mode wheel scroll should be normalized to pixels"
+        )
+    }
+
+    @Test
+    fun pageModeWheelScrollUsesViewportSize() = runTest {
+        val verticalScrollState = ScrollState(initial = 0)
+
+        createComposeWindow {
+            CompositionLocalProvider(LocalDensity provides Density(2f)) {
+                Box(
+                    modifier = Modifier.size(100.dp).verticalScroll(verticalScrollState)
+                ) {
+                    Column(modifier = Modifier.size(400.dp)) { }
+                }
+            }
+        }
+
+        assertEquals(0, verticalScrollState.value)
+
+        // A single page-mode delta must scroll by a whole viewport.
+        // The viewport is 100.dp, so 1 page * 100.dp * density(2f) = 200px.
+        getCanvas().dispatchEvent(
+            WheelEvent(
+                "wheel",
+                WheelEventInit(deltaY = 1.0, deltaMode = WheelEvent.DOM_DELTA_PAGE)
+            )
+        )
+
+        assertEquals(
+            200,
+            verticalScrollState.value,
+            "page-mode wheel scroll should scroll by the viewport size"
+        )
+    }
+
+    @Test
     fun horizontalScroll() = runTest {
         val horizontalScrollState = ScrollState(initial = 0)
 

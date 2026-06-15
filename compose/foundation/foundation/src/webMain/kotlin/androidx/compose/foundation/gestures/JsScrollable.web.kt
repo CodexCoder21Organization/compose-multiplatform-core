@@ -25,23 +25,69 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFold
+import kotlinx.browser.document
+import kotlinx.browser.window
+import org.w3c.dom.HTMLElement
+import org.w3c.dom.events.WheelEvent
 
 internal actual fun CompositionLocalConsumerModifierNode.platformScrollConfig(): ScrollConfig = JsConfig
 
 private object JsConfig : ScrollConfig {
     override fun Density.calculateMouseWheelScroll(event: PointerEvent, bounds: IntSize): Offset {
-        // Note: The returned offset value here is not strictly accurate.
-        // However, it serves two primary purposes:
-        // 1. Ensures all related tests pass successfully.
-        // 2. Provides satisfactory UI behavior
-        // In future iterations, this value could be refined to enhance UI behavior.
-        // However, keep in mind that any modifications would also necessitate adjustments to the corresponding tests.
-        return event.totalScrollDelta * -1.dp.toPx()
+        // Browsers report wheel deltas in one of three units depending on the input
+        // device and its configuration (see WheelEvent.deltaMode). Compose scrolling
+        // operates in pixels, so line- and page-mode deltas have to be normalized first.
+        // This mirrors the way Flutter's web engine handles wheel events in
+        // `_convertWheelEventToPointerData` (flutter/engine: lib/web_ui/lib/src/engine/
+        // pointer_binding.dart).
+        return when ((event.nativeEvent as? WheelEvent)?.deltaMode) {
+            // Some browsers (most notably Firefox) report wheel deltas in lines rather
+            // than pixels. Convert lines to pixels using the browser's default line
+            // height so that scrolling respects the user's font settings.
+            WheelEvent.DOM_DELTA_LINE -> event.totalScrollDelta * -defaultLineScrollHeight.dp.toPx()
+
+            // Page-mode deltas are expressed in viewport pages, so scale them by the
+            // size of the scrollable bounds (same approach as the desktop config).
+            WheelEvent.DOM_DELTA_PAGE ->
+                Offset(
+                    x = event.totalScrollDelta.x * bounds.width,
+                    y = event.totalScrollDelta.y * bounds.height,
+                ) * -1f
+
+            // Pixel-mode deltas (the default, used by trackpads and high-resolution
+            // wheels). The resulting offset is not strictly accurate but provides
+            // satisfactory UI behavior; keep in mind that changing this value would
+            // also require adjusting the corresponding tests.
+            else -> event.totalScrollDelta * -1.dp.toPx()
+        }
     }
 }
 
 private val PointerEvent.totalScrollDelta
     get() = this.changes.fastFold(Offset.Zero) { acc, c -> acc + c.scrollDelta }
+
+/** Fallback line height (in dp) used when the browser default font size can't be read. */
+private const val FallbackLineScrollHeight = 16f
+
+/**
+ * The default line height (in dp) used to convert line-mode wheel deltas to pixels.
+ *
+ * Derived once from the browser's default font size, mirroring Flutter web's
+ * `_computeDefaultScrollLineHeight`, so that line-mode scrolling respects the user's font
+ * settings. Falls back to [FallbackLineScrollHeight] when the value can't be determined.
+ */
+private val defaultLineScrollHeight: Float by lazy { computeDefaultLineScrollHeight() }
+
+private fun computeDefaultLineScrollHeight(): Float {
+    val body = document.body ?: return FallbackLineScrollHeight
+    val probe = document.createElement("div") as HTMLElement
+    probe.style.fontSize = "initial"
+    probe.style.display = "none"
+    body.appendChild(probe)
+    val fontSize = window.getComputedStyle(probe).fontSize
+    body.removeChild(probe)
+    return fontSize.removeSuffix("px").toFloatOrNull() ?: FallbackLineScrollHeight
+}
 
 
 /*
