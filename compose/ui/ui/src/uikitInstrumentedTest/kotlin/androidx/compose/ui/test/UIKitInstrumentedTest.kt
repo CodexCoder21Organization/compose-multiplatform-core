@@ -27,8 +27,10 @@ import androidx.compose.ui.test.utils.beginKeyPress
 import androidx.compose.ui.test.utils.beginModifierKeyPress
 import androidx.compose.ui.test.utils.beginPress
 import androidx.compose.ui.test.utils.center
+import androidx.compose.ui.test.utils.findFirstDescendant
 import androidx.compose.ui.test.utils.getTouchesEvent
 import androidx.compose.ui.test.utils.hold
+import androidx.compose.ui.test.utils.isLoupeView
 import androidx.compose.ui.test.utils.mouseDown
 import androidx.compose.ui.test.utils.moveToLocationOnWindow
 import androidx.compose.ui.test.utils.release
@@ -763,6 +765,15 @@ internal fun UIKitInstrumentedTest.waitForContextMenu() {
         } != null
     }
     delay(500) // wait for toolbar animation
+}
+
+internal fun UIKitInstrumentedTest.longPressAndAwaitContextMenu(tag: String) {
+    val touch = findNodeWithTag(tag).touchDown()
+    waitUntil{
+        findFirstDescendant { it.isLoupeView } != null
+    }
+    touch.up()
+    waitForContextMenu()
 }
 
 internal fun UIKitInstrumentedTest.tapContextMenuButton(label: String) {

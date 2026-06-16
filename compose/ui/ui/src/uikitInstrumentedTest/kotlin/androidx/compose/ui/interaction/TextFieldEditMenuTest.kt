@@ -50,10 +50,9 @@ import androidx.compose.ui.test.assertVisibleInContainer
 import androidx.compose.ui.test.findNodeWithLabel
 import androidx.compose.ui.test.findNodeWithLabelOrNull
 import androidx.compose.ui.test.findNodeWithTag
+import androidx.compose.ui.test.longPressAndAwaitContextMenu
 import androidx.compose.ui.test.runUIKitInstrumentedTest
 import androidx.compose.ui.test.tapContextMenuButton
-import androidx.compose.ui.test.utils.findFirstDescendant
-import androidx.compose.ui.test.utils.isLoupeView
 import androidx.compose.ui.test.utils.up
 import androidx.compose.ui.test.waitForContextMenu
 import androidx.compose.ui.text.TextRange
@@ -547,15 +546,6 @@ class TextFieldEditMenuTest {
 
     private fun UIKitInstrumentedTest.openToolbar(textFieldTag: String) {
         focusThenDoubleTap(textFieldTag)
-        waitForContextMenu()
-    }
-
-    private fun UIKitInstrumentedTest.longPressAndAwaitContextMenu(textFieldTag: String) {
-        val touch = findNodeWithTag(textFieldTag).touchDown()
-        waitUntil {
-            findFirstDescendant { it.isLoupeView } != null
-        }
-        touch.up()
         waitForContextMenu()
     }
 
