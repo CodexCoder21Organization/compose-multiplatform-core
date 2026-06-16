@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 The Android Open Source Project
+ * Copyright 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package androidx.compose.ui.text.platform
+
+package androidx.compose.ui.text.intl
 
 import androidx.compose.ui.InternalComposeUiApi
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontVariation
 
-actual sealed class PlatformFont : Font {
-    actual abstract val identity: String
-    actual abstract val variationSettings: FontVariation.Settings
-    @InternalComposeUiApi
-    actual val cacheKey: String
-        get() = "${this::class.qualifiedName}|$identity|weight=${weight.weight}|style=$style|variationSettings=${variationSettings.settings}"
-}
+@InternalComposeUiApi
+expect fun Locale.isRtl(): Boolean

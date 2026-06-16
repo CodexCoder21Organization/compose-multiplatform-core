@@ -17,6 +17,7 @@
 package androidx.compose.ui.text.intl
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.util.fastMap
 import kotlin.js.JsName
 import kotlin.js.js
@@ -68,7 +69,8 @@ private val rtlLanguagesSet = setOf("ar", "fa", "he", "iw", "ji", "ur", "yi")
 
 // Implemented according to ComponentOrientation.getOrientation (AWT),
 // since there is no js API for this.
-internal actual fun Locale.isRtl(): Boolean = this.language in rtlLanguagesSet
+@InternalComposeUiApi
+actual fun Locale.isRtl(): Boolean = this.language in rtlLanguagesSet
 
 // K/JS and K/Wasm stdlib doesn't have this type. Therefore, we declare it here.
 // Ideally it would not be necessary, or at least we would make it internal, but Compose common API
