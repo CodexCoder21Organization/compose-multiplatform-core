@@ -33,6 +33,7 @@ import androidx.compose.ui.isEqualTo
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.LocalPointerIconService
 import androidx.compose.ui.platform.PlatformContext
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.scene.ComposeSceneContext
 import androidx.compose.ui.scene.PlatformLayersComposeScene
@@ -364,6 +365,7 @@ private fun createPlatformLayersScene(
     platformContext: PlatformContext,
     invalidate: () -> Unit = {},
 ): Pair<ComposeScene, FrameRecomposer> {
+    registerSkikoComposeImplementation()
     val frameRecomposer = FrameRecomposer(coroutineContext, invalidate)
     val scene = PlatformLayersComposeScene(
         frameRecomposer = frameRecomposer,

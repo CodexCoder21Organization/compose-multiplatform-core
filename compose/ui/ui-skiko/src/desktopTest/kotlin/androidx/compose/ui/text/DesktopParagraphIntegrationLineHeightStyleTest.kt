@@ -49,6 +49,13 @@ class DesktopParagraphIntegrationLineHeightStyleTest {
         registerSkikoComposeImplementation()
     }
 
+    // TODO: re-enable per-test cleanup once async-registration tests (AWT) no longer rely on the
+    //  backend registration persisting across tests.
+    // @After
+    // fun cleanup() {
+    //     clearSkikoComposeImplementation()
+    // }
+
     // Lazy so the registry is populated by [setup] before the resolver is created.
     private val fontFamilyResolver by lazy { createFontFamilyResolver() }
     private val fontFamilyMeasureFont =

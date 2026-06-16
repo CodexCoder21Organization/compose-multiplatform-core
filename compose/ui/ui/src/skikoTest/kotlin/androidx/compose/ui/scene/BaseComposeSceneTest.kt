@@ -29,6 +29,7 @@ import androidx.compose.ui.node.DelegatingNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.FrameRecomposer
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.unit.IntSize
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
@@ -161,6 +162,7 @@ private fun createPlatformLayersScene(
     invalidateLayout: () -> Unit = {},
     invalidateDraw: () -> Unit = {},
 ): Pair<ComposeScene, AutoCloseable> {
+    registerSkikoComposeImplementation()
     val frameRecomposer = FrameRecomposer(coroutineContext)
     val scene = PlatformLayersComposeScene(
         frameRecomposer = frameRecomposer,
@@ -180,6 +182,7 @@ private fun createCanvasLayersScene(
     invalidateLayout: () -> Unit = {},
     invalidateDraw: () -> Unit = {},
 ): Pair<ComposeScene, AutoCloseable> {
+    registerSkikoComposeImplementation()
     val frameRecomposer = FrameRecomposer(coroutineContext)
     val scene = CanvasLayersComposeScene(
         frameRecomposer = frameRecomposer,

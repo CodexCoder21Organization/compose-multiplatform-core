@@ -16,6 +16,9 @@
 
 package androidx.compose.ui.node
 
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
+import kotlin.test.BeforeTest
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.platform.PlatformContext
@@ -31,7 +34,21 @@ import kotlin.test.fail
 import kotlinx.coroutines.test.runTest
 import org.jetbrains.skia.Surface
 
+@OptIn(InternalComposeUiApi::class)
 class VoteFrameRateTest {
+
+    @BeforeTest
+    fun registerSkikoBackend() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
 
     @Test
     fun testNoVotedFrameRate() = runTest {

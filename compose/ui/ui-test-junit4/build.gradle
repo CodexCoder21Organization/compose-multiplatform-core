@@ -119,6 +119,7 @@ androidXMultiplatform {
             dependencies {
                 implementation(libs.truth)
                 implementation(libs.skiko)
+                implementation(project(":compose:ui:ui-skiko"))
             }
         }
 

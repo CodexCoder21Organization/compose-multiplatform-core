@@ -16,6 +16,7 @@
 
 package androidx.compose.ui.test
 
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.unit.Density
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -38,6 +39,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
     level = DeprecationLevel.WARNING,
 )
 @ExperimentalTestApi
+@OptIn(InternalComposeUiApi::class)
 fun runDesktopComposeUiTest(
     width: Int = 1024,
     height: Int = 768,

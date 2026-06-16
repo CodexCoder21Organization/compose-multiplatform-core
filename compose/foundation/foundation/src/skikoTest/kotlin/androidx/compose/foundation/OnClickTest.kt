@@ -33,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runSkikoComposeUiTest
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.use
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -47,6 +49,19 @@ import kotlinx.coroutines.test.runTest
 @ExperimentalCoroutinesApi
 @OptIn(ExperimentalFoundationApi::class, InternalComposeUiApi::class)
 class OnClickTest {
+
+    @BeforeTest
+    fun registerSkikoBackend() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
 
     private fun testClick(
         pointerMatcher: PointerMatcher,

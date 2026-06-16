@@ -16,9 +16,11 @@
 
 package androidx.compose.ui.text
 
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -38,17 +40,32 @@ import androidx.compose.ui.unit.sp
 import com.google.common.truth.FloatSubject
 import com.google.common.truth.Truth.assertThat
 import kotlin.math.roundToInt
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
 @RunWith(JUnit4::class)
+@OptIn(InternalComposeUiApi::class)
 class DesktopParagraphTest {
     @get:Rule
     val rule = createComposeRule()
 
-    private val fontFamilyResolver = createFontFamilyResolver()
+    @Before
+    fun setup() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once async-registration tests (AWT) no longer rely on the
+    //  backend registration persisting across tests.
+    // @After
+    // fun cleanup() {
+    //     clearSkikoComposeImplementation()
+    // }
+
+    // Lazy so the registry is populated by [setup] before the resolver is created.
+    private val fontFamilyResolver by lazy { createFontFamilyResolver() }
     private val defaultDensity = Density(density = 1f)
     private val fontFamilyMeasureFont =
         FontFamily(

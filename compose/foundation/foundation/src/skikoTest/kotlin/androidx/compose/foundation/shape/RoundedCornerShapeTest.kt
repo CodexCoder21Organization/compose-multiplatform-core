@@ -16,6 +16,9 @@
 
 package androidx.compose.foundation.shape
 
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
+import kotlin.test.BeforeTest
 import androidx.compose.foundation.assertThat
 import androidx.compose.foundation.isEqualTo
 import androidx.compose.foundation.isFalse
@@ -32,7 +35,21 @@ import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+@OptIn(InternalComposeUiApi::class)
 class RoundedCornerShapeTest {
+
+    @BeforeTest
+    fun registerSkikoBackend() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
 
     private val density = Density(2f)
     private val size = Size(100.0f, 150.0f)

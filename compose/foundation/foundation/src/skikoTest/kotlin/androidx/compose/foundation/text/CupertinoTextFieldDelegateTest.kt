@@ -16,6 +16,9 @@
 
 package androidx.compose.foundation.text
 
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
+import kotlin.test.BeforeTest
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.MultiParagraph
 import androidx.compose.ui.text.TextLayoutInput
@@ -34,7 +37,21 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.test.IgnoreWasmTarget
 
+@OptIn(InternalComposeUiApi::class)
 class CupertinoTextFieldDelegateTest {
+
+    @BeforeTest
+    fun registerSkikoBackend() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
     private val sampleText =
         "aaaa bbb cccc dd e fffffffff?????????!!!!!!!          ...\n" + "ggggggg tttt\n" +
             "Family emoji: \uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66, and some text at the end\n" +

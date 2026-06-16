@@ -44,14 +44,15 @@ import org.junit.runners.model.Statement
             "coroutines are queued rather than executed immediately.",
     level = DeprecationLevel.WARNING,
 )
-@OptIn(InternalTestApi::class, ExperimentalTestApi::class)
-actual fun createComposeRule(): ComposeContentTestRule =
-    DesktopComposeTestRule(
+@OptIn(InternalTestApi::class, ExperimentalTestApi::class, InternalComposeUiApi::class)
+actual fun createComposeRule(): ComposeContentTestRule {
+    return DesktopComposeTestRule(
         DesktopComposeUiTest(
             effectContext = EmptyCoroutineContext,
             useStandardTestDispatcherForComposition = false
         )
     )
+}
 
 @Deprecated(
     message =
@@ -61,14 +62,15 @@ actual fun createComposeRule(): ComposeContentTestRule =
     level = DeprecationLevel.WARNING,
 )
 @ExperimentalTestApi
-@OptIn(InternalTestApi::class)
-actual fun createComposeRule(effectContext: CoroutineContext): ComposeContentTestRule =
-    DesktopComposeTestRule(
+@OptIn(InternalTestApi::class, InternalComposeUiApi::class)
+actual fun createComposeRule(effectContext: CoroutineContext): ComposeContentTestRule {
+    return DesktopComposeTestRule(
         DesktopComposeUiTest(
             effectContext = effectContext,
             useStandardTestDispatcherForComposition = false
         )
     )
+}
 
 @InternalTestApi
 @OptIn(ExperimentalTestApi::class)

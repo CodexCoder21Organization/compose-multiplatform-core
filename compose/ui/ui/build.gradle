@@ -206,6 +206,7 @@ androidXMultiplatform {
             dependsOn(commonMain)
             dependencies {
                 api(project(":compose:ui:ui-graphics"))
+                implementation(project(":compose:ui:ui-skiko"))
                 api(project(":compose:ui:ui-text"))
                 api(libs.skiko)
                 implementation(libs.atomicFu)
@@ -222,6 +223,7 @@ androidXMultiplatform {
                 // TODO: Move to commonTest?
                 implementation(project(":compose:material:material"))
                 implementation(project(":compose:foundation:foundation"))
+                implementation(project(":compose:ui:ui-skiko"))
                 implementation(project(":compose:ui:ui-test"))
             }
         }

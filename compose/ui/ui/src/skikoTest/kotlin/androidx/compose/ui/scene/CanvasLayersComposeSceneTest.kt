@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.FrameRecomposer
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -37,6 +38,7 @@ class CanvasLayersComposeSceneTest {
 
     @Test
     fun sceneSizeChangeTriggersInvalidation() = runTest(StandardTestDispatcher()) {
+        registerSkikoComposeImplementation()
         var invalidationCount = 0
         val frameRecomposer = FrameRecomposer(coroutineContext)
         CanvasLayersComposeScene(
@@ -56,6 +58,7 @@ class CanvasLayersComposeSceneTest {
 
     @Test
     fun cancelClickForGestureOwner() = runTest(StandardTestDispatcher()) {
+        registerSkikoComposeImplementation()
         var rootCancelled = false
         var popupCancelled = false
         val frameRecomposer = FrameRecomposer(coroutineContext)

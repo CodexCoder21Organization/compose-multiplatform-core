@@ -16,6 +16,9 @@
 
 package androidx.compose.ui.node
 
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
+import kotlin.test.BeforeTest
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -45,7 +48,21 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 
+@OptIn(InternalComposeUiApi::class)
 class RootNodeOwnerTest {
+
+    @BeforeTest
+    fun registerSkikoBackend() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
 
     @Test
     fun textTextInputSession() = runTest {

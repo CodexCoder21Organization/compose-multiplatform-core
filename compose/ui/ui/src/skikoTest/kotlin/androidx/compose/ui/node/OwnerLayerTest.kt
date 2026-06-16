@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateObserver
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isFinite
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.platform.invertTo
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -56,7 +58,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.jetbrains.skia.Surface
 
+@OptIn(InternalComposeUiApi::class)
 class OwnerLayerTest {
+
+    init {
+        registerSkikoComposeImplementation()
+    }
 
     private val layer = TestRenderNodeLayer()
     private val cos45 = cos(PI / 4).toFloat()

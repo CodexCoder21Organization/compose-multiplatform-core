@@ -15,10 +15,12 @@
  */
 package androidx.compose.ui.text
 
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +41,7 @@ import androidx.kruth.FloatSubject
 import androidx.kruth.Subject
 import androidx.kruth.assertThat
 import androidx.kruth.assertWithMessage
+import kotlin.test.BeforeTest
 import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,8 +50,23 @@ import kotlin.test.assertFailsWith
 // TODO: move to commonTest once sample_font will be available outside of JVM
 
 // Adopted tests from androidInstrumentedTest/kotlin/androidx/compose/ui/text/ParagraphIntegrationTest.kt
+@OptIn(InternalComposeUiApi::class)
 class DesktopParagraphIntegrationTest {
-    private val fontFamilyResolver = createFontFamilyResolver()
+    @BeforeTest
+    fun setup() {
+        registerSkikoComposeImplementation()
+    }
+
+    // TODO: re-enable per-test cleanup once tests that register the backend asynchronously
+    //  (e.g. AWT ComposePanel/ComposeWindow via ComposeContainer on the EDT) no longer rely on
+    //  the registration persisting across tests.
+    // @AfterTest
+    // fun clearSkikoBackend() {
+    //     clearSkikoComposeImplementation()
+    // }
+
+    // Lazy so the registry is populated by [setup] before the resolver is created.
+    private val fontFamilyResolver by lazy { createFontFamilyResolver() }
     private val fontFamilyMeasureFont =
         FontFamily(
             Font(

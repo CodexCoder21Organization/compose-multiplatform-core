@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.WebTextInputService
 import androidx.compose.ui.platform.WebTextToolbar
 import androidx.compose.ui.platform.WebWakeLockManager
 import androidx.compose.ui.platform.WindowInfoImpl
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.platform.accessibility.ComposeWebSemanticsListener
 import androidx.compose.ui.platform.installFallbackFontDownloader
 import androidx.compose.ui.scene.CanvasLayersComposeScene
@@ -345,6 +346,10 @@ internal class ComposeWindow(
                 scene.render(frameRecomposer, canvas.asComposeCanvas(), nanoTime)
             }
         }
+    }
+
+    init {
+        registerSkikoComposeImplementation()
     }
 
     private val scene = CanvasLayersComposeScene(

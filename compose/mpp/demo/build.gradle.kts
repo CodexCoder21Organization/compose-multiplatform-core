@@ -136,6 +136,7 @@ kotlin {
                 implementation(project(":compose:ui:ui-graphics"))
                 implementation(project(":compose:ui:ui-text"))
                 implementation(project(":compose:ui:ui-backhandler"))
+                implementation(project(":compose:ui:ui-skiko"))
                 implementation(project(":lifecycle:lifecycle-common"))
                 implementation(project(":lifecycle:lifecycle-runtime"))
                 implementation(project(":lifecycle:lifecycle-runtime-compose"))

@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformInsets
 import androidx.compose.ui.platform.PlatformWindowInsets
 import androidx.compose.ui.platform.WindowInfoImpl
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.platform.FrameRecomposer
@@ -812,6 +813,7 @@ class PopupTest {
             }
             error("ComposeScene did not become idle")
         }
+        registerSkikoComposeImplementation()
         scene = CanvasLayersComposeScene(
             frameRecomposer = frameRecomposer,
             platformContext = PlatformContext.Empty().also {

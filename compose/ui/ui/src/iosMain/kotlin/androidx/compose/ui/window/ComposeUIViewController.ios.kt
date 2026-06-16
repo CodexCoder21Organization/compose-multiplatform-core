@@ -47,7 +47,9 @@ fun ComposeUIViewController(content: @Composable () -> Unit): UIViewController =
 fun ComposeUIViewController(
     configure: ComposeUIViewControllerConfiguration.() -> Unit = {},
     content: @Composable () -> Unit
-): UIViewController = ComposeHostingViewController(
-    configuration = ComposeUIViewControllerConfiguration().apply(configure),
-    content = content,
-)
+): UIViewController {
+    return ComposeHostingViewController(
+        configuration = ComposeUIViewControllerConfiguration().apply(configure),
+        content = content,
+    )
+}
