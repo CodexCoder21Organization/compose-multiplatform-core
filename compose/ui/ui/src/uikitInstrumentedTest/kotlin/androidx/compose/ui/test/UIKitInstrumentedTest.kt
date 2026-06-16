@@ -511,6 +511,13 @@ internal class UIKitInstrumentedTest(
         return tap(frame.center())
     }
 
+    fun focusThenDoubleTap(tag: String, delayMillis: Long = 500L) {
+        val node = findNodeWithTag(tag)
+        node.tap()
+        delay(delayMillis)
+        node.doubleTap()
+    }
+
     /**
      * Simulates a touch-down event at the center of a given AccessibilityTestNode.
      */
@@ -771,4 +778,3 @@ internal fun UIKitInstrumentedTest.tapContextMenuButton(label: String) {
             .up()
     }
 }
-

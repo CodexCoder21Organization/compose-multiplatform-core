@@ -62,9 +62,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.UIKit.UIPasteboard
@@ -548,9 +546,7 @@ class TextFieldEditMenuTest {
     }
 
     private fun UIKitInstrumentedTest.openToolbar(textFieldTag: String) {
-        findNodeWithTag(textFieldTag).tap()
-        delay(500)
-        findNodeWithTag(textFieldTag).doubleTap()
+        focusThenDoubleTap(textFieldTag)
         waitForContextMenu()
     }
 
