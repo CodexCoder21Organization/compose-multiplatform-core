@@ -58,6 +58,7 @@ import androidx.compose.ui.test.waitForContextMenu
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -77,7 +78,7 @@ class TextFieldEditMenuTest {
                 BasicTextField(
                     textValue.value,
                     { textValue.value = it },
-                    modifier = Modifier.testTag("TextField").focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                 )
             }
             LaunchedEffect(focusRequester) {
@@ -99,7 +100,7 @@ class TextFieldEditMenuTest {
             Column(modifier = Modifier.safeDrawingPadding()) {
                 BasicTextField(
                     textFieldState,
-                    modifier = Modifier.testTag("TextField").focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                 )
             }
             LaunchedEffect(focusRequester) {
@@ -118,7 +119,7 @@ class TextFieldEditMenuTest {
         setContent {
             val focusRequester = remember { FocusRequester() }
             Column(modifier = Modifier.safeDrawingPadding()) {
-                TextField("Hello-LongLongLongLongLong-text", {}, modifier = Modifier.testTag("TextField").focusRequester(focusRequester))
+                TextField("Hello-LongLongLongLongLong-text", {}, modifier = textFieldModifier(focusRequester))
             }
             LaunchedEffect(focusRequester) {
                 focusRequester.requestFocus()
@@ -137,7 +138,7 @@ class TextFieldEditMenuTest {
         setContent {
             val focusRequester = remember { FocusRequester() }
             Column(modifier = Modifier.safeDrawingPadding()) {
-                BasicTextField(textFieldState, modifier = Modifier.testTag("TextField").focusRequester(focusRequester))
+                BasicTextField(textFieldState, modifier = textFieldModifier(focusRequester))
             }
             LaunchedEffect(focusRequester) {
                 focusRequester.requestFocus()
@@ -158,7 +159,7 @@ class TextFieldEditMenuTest {
                 BasicTextField(
                     value = textFieldValue.value,
                     onValueChange = { textFieldValue.value = it },
-                    modifier = Modifier.testTag("TextField").focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                 )
             }
             LaunchedEffect(focusRequester) {
@@ -187,7 +188,7 @@ class TextFieldEditMenuTest {
         setContent {
             val focusRequester = remember { FocusRequester() }
             Column(modifier = Modifier.safeDrawingPadding()) {
-                BasicTextField(textFieldState, modifier = Modifier.testTag("TextField").focusRequester(focusRequester))
+                BasicTextField(textFieldState, modifier = textFieldModifier(focusRequester))
             }
             LaunchedEffect(focusRequester) {
                 focusRequester.requestFocus()
@@ -219,9 +220,7 @@ class TextFieldEditMenuTest {
                 BasicTextField(
                     value = textFieldValue.value,
                     onValueChange = { textFieldValue.value = it },
-                    modifier = Modifier
-                        .testTag("TextField")
-                        .focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                 )
             }
             LaunchedEffect(focusRequester) {
@@ -255,9 +254,7 @@ class TextFieldEditMenuTest {
             Column(modifier = Modifier.safeDrawingPadding()) {
                 BasicTextField(
                     state = textFieldState,
-                    modifier = Modifier
-                        .testTag("TextField")
-                        .focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                 )
             }
             LaunchedEffect(focusRequester) {
@@ -279,6 +276,205 @@ class TextFieldEditMenuTest {
         longPressAndAwaitContextMenu("TextField")
         findNodeWithLabel("Paste").assertVisibleInContainer()
     }
+
+    @Test
+    fun testEditableCollapsedClipboardText() =
+        runComplexTextFieldTest { textFieldKind, newContextMenu ->
+            UIPasteboard.generalPasteboard().string = "Paste text"
+            setTextFieldContent(
+                textFieldKind = textFieldKind,
+                initialValue = TextFieldValue("Text", TextRange(4, 4)),
+                readOnly = false
+            )
+
+            longPressAndAwaitContextMenu("TextField")
+            verifyContextMenuItemsVisible(
+                labels = if (newContextMenu) {
+                    listOf("Paste", "Select All")
+                } else {
+                    listOf("Paste", "Select", "Select All")
+                }
+            )
+
+            verifyContextMenuItemsHidden(
+                labels = if (newContextMenu) {
+                    listOf("Cut", "Copy", "Select")
+                } else {
+                    listOf("Cut", "Copy")
+                }
+            )
+        }
+
+    private fun runComplexTextFieldTest(test: UIKitInstrumentedTest.(EditableTextFieldKind, newContextMenuEnabled: Boolean) -> Unit) {
+        for (newContextMenuEnabled in arrayOf(false, true)) {
+            for (textFieldKind in EditableTextFieldKind.entries) {
+                runContextMenuTest(newContextMenuEnabled) {
+                    test(textFieldKind, newContextMenuEnabled)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun testEditableCollapsedClipboardEmpty() =
+        runComplexTextFieldTest { textFieldKind, newContextMenu ->
+            UIPasteboard.generalPasteboard().string = null
+            setTextFieldContent(
+                textFieldKind = textFieldKind,
+                initialValue = TextFieldValue("Text", TextRange(4, 4)),
+                readOnly = false
+            )
+
+            longPressAndAwaitContextMenu("TextField")
+            verifyContextMenuItemsVisible(
+                labels = if (newContextMenu) {
+                    listOf("Select All")
+                } else {
+                    listOf("Select", "Select All")
+                }
+            )
+
+            verifyContextMenuItemsHidden(
+                labels = if (newContextMenu) {
+                    listOf("Cut", "Copy", "Paste", "Select")
+                } else {
+                    listOf("Cut", "Copy", "Paste")
+                }
+            )
+        }
+
+    @Test
+    fun testEditablePartialSelectionClipboardText() =
+        runComplexTextFieldTest { textFieldKind, _ ->
+            UIPasteboard.generalPasteboard().string = "Paste text"
+            setTextFieldContent(
+                textFieldKind = textFieldKind,
+                initialValue = TextFieldValue(PARTIAL_SELECTION_TEXT),
+                readOnly = false
+            )
+
+            openToolbar("TextField")
+            verifyContextMenuItemsVisible(labels = listOf("Cut", "Copy", "Paste", "Select All"))
+            verifyContextMenuItemsHidden(labels = listOf("Select"))
+        }
+
+    @Test
+    fun testEditableFullSelectionClipboardTextBasicTextField() {
+        for (newContextMenuEnabled in arrayOf(false, true)) {
+            runEditableFullSelectionClipboardTextTest(newContextMenuEnabled) {
+                val textFieldValue = mutableStateOf(TextFieldValue("Text", TextRange(4, 4)))
+                setContent {
+                    val focusRequester = remember { FocusRequester() }
+                    Column(modifier = Modifier.safeDrawingPadding()) {
+                        BasicTextField(
+                            value = textFieldValue.value,
+                            onValueChange = { textFieldValue.value = it },
+                            modifier = textFieldModifier(focusRequester)
+                        )
+                    }
+                    LaunchedEffect(focusRequester) {
+                        focusRequester.requestFocus()
+                    }
+                }
+
+                val isFullySelected = {
+                    val selection = textFieldValue.value.selection
+                    selection.start == 0 && selection.end == textFieldValue.value.text.length
+                }
+                isFullySelected
+            }
+        }
+    }
+
+    @Test
+    fun testEditableFullSelectionClipboardTextBasicTextField2OldContextMenu() =
+        runEditableFullSelectionClipboardTextTest(newContextMenuEnabled = false) {
+            runEditableFullSelectionClipboardTextBasicTextField2()
+        }
+
+    @Test
+    @Ignore // CMP-10301: Menu is not shown after tap on Select All
+    fun testEditableFullSelectionClipboardTextBasicTextField2NewContextMenu() =
+        runEditableFullSelectionClipboardTextTest(newContextMenuEnabled = true) {
+            runEditableFullSelectionClipboardTextBasicTextField2()
+        }
+
+    private fun UIKitInstrumentedTest.runEditableFullSelectionClipboardTextBasicTextField2(): () -> Boolean {
+        val textFieldState = TextFieldState("Text", TextRange(4, 4))
+        setContent {
+            val focusRequester = remember { FocusRequester() }
+            Column(modifier = Modifier.safeDrawingPadding()) {
+                BasicTextField(
+                    state = textFieldState,
+                    modifier = textFieldModifier(focusRequester)
+                )
+            }
+            LaunchedEffect(focusRequester) {
+                focusRequester.requestFocus()
+            }
+        }
+
+        return {
+            val selection = textFieldState.selection
+            selection.start == 0 && selection.end == textFieldState.text.length
+        }
+    }
+
+    private fun runEditableFullSelectionClipboardTextTest(
+        newContextMenuEnabled: Boolean,
+        setContentAndGetIsFullySelected: UIKitInstrumentedTest.() -> () -> Boolean
+    ) =
+        runContextMenuTest(newContextMenuEnabled) {
+            UIPasteboard.generalPasteboard().string = "Paste text"
+            val isFullySelected = setContentAndGetIsFullySelected()
+
+            longPressAndAwaitContextMenu("TextField")
+            tapContextMenuButton("Select All")
+            waitUntil("Text field should be fully selected") {
+                isFullySelected()
+            }
+
+            val visible = listOf("Cut", "Copy", "Paste")
+            val hidden = listOf("Select", "Select All")
+
+            waitUntil("Context menu should update for full selection") {
+                visible.all { findNodeWithLabelOrNull(it) != null } &&
+                    hidden.all { findNodeWithLabelOrNull(it) == null }
+            }
+
+            verifyContextMenuItemsVisible(labels = visible)
+            verifyContextMenuItemsHidden(labels = hidden)
+        }
+
+    @Test
+    fun testReadOnlyCollapsedClipboardText() =
+        runComplexTextFieldTest { textFieldKind, _ ->
+            UIPasteboard.generalPasteboard().string = "Paste text"
+            setTextFieldContent(
+                textFieldKind = textFieldKind,
+                initialValue = TextFieldValue("Text", TextRange(4, 4)),
+                readOnly = true
+            )
+
+            longPressAndAwaitContextMenu("TextField")
+            verifyContextMenuItemsVisible(labels = listOf("Select All"))
+            verifyContextMenuItemsHidden(labels = listOf("Cut", "Copy", "Paste", "Select"))
+        }
+
+    @Test
+    fun testReadOnlyPartialSelectionClipboardText() =
+        runComplexTextFieldTest { textFieldKind, _ ->
+            UIPasteboard.generalPasteboard().string = "Paste text"
+            setTextFieldContent(
+                textFieldKind = textFieldKind,
+                initialValue = TextFieldValue(PARTIAL_SELECTION_TEXT),
+                readOnly = true
+            )
+
+            openToolbar("TextField")
+            verifyContextMenuItemsVisible(labels = listOf("Copy", "Select All"))
+            verifyContextMenuItemsHidden(labels = listOf("Cut", "Paste", "Select"))
+        }
 
     @Test
     fun testTapsCountingWithMultiTouch() = runUIKitInstrumentedTest {
@@ -427,9 +623,7 @@ class TextFieldEditMenuTest {
                 BasicTextField(
                     value = textFieldValue.value,
                     onValueChange = { textFieldValue.value = it },
-                    modifier = Modifier
-                        .testTag("TextField")
-                        .focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                         .appendTextContextMenuComponents {
                             item(key = "CustomKey", label = "Custom Action") {
                                 customItemClicked = true
@@ -471,9 +665,7 @@ class TextFieldEditMenuTest {
             Column(modifier = Modifier.safeDrawingPadding()) {
                 BasicTextField(
                     state = textFieldState,
-                    modifier = Modifier
-                        .testTag("TextField")
-                        .focusRequester(focusRequester)
+                    modifier = textFieldModifier(focusRequester)
                         .appendTextContextMenuComponents {
                             item(key = "CustomKey", label = "Custom Action") {
                                 customItemClicked = true
@@ -549,6 +741,53 @@ class TextFieldEditMenuTest {
         waitForContextMenu()
     }
 
+    private fun UIKitInstrumentedTest.setTextFieldContent(
+        textFieldKind: EditableTextFieldKind,
+        initialValue: TextFieldValue,
+        readOnly: Boolean,
+    ) {
+        setContent {
+            val focusRequester = remember { FocusRequester() }
+            Column(modifier = Modifier.safeDrawingPadding()) {
+                when (textFieldKind) {
+                    EditableTextFieldKind.BasicTextField -> {
+                        val textFieldValue = remember {
+                            mutableStateOf(initialValue)
+                        }
+                        BasicTextField(
+                            value = textFieldValue.value,
+                            onValueChange = { textFieldValue.value = it },
+                            modifier = textFieldModifier(focusRequester),
+                            readOnly = readOnly
+                        )
+                    }
+                    EditableTextFieldKind.BasicTextField2 -> {
+                        val textFieldState = remember {
+                            TextFieldState(initialValue.text, initialValue.selection)
+                        }
+                        BasicTextField(
+                            state = textFieldState,
+                            modifier = textFieldModifier(focusRequester),
+                            readOnly = readOnly
+                        )
+                    }
+                }
+            }
+            LaunchedEffect(focusRequester) {
+                focusRequester.requestFocus()
+            }
+        }
+    }
+
+    private enum class EditableTextFieldKind {
+        BasicTextField,
+        BasicTextField2
+    }
+
+    private companion object {
+        private const val PARTIAL_SELECTION_TEXT = "accomplishment extraordinary magnificent establishment"
+    }
+
     @OptIn(ExperimentalFoundationApi::class)
     private fun runContextMenuTest(
         newContextMenuEnabled: Boolean,
@@ -564,25 +803,26 @@ class TextFieldEditMenuTest {
     }
 
     @OptIn(ExperimentalForeignApi::class)
+    private fun UIKitInstrumentedTest.verifyContextMenuItemsVisible(labels: List<String>) {
+        labels.forEach { label ->
+            findNodeWithLabel(label).let {
+                it.assertVisibleInContainer()
+                assertTrue(it.isAccessibilityElement ?: false)
+            }
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class) private fun UIKitInstrumentedTest.verifyContextMenuItemsHidden(labels: List<String>) {
+        labels.forEach { label ->
+            assertNull(
+                findNodeWithLabelOrNull(label),
+                "Context menu item \"$label\" should be hidden"
+            )
+        }
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
     private fun UIKitInstrumentedTest.verifyFullToolbarPresent() {
-        findNodeWithLabel("Cut").let {
-            it.assertVisibleInContainer()
-            assertTrue(it.isAccessibilityElement ?: false)
-        }
-
-        findNodeWithLabel("Copy").let {
-            it.assertVisibleInContainer()
-            assertTrue(it.isAccessibilityElement ?: false)
-        }
-
-        findNodeWithLabel("Paste").let {
-            it.assertVisibleInContainer()
-            assertTrue(it.isAccessibilityElement ?: false)
-        }
-
-        findNodeWithLabel("Select All").let {
-            it.assertVisibleInContainer()
-            assertTrue(it.isAccessibilityElement ?: false)
-        }
+        verifyContextMenuItemsVisible(listOf("Cut", "Copy", "Paste", "Select All"))
     }
 }
