@@ -92,13 +92,23 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   composition from spinning: automatic re-attempts are capped (3 consecutive failures),
   after which the boundary holds the fallback and reports the loop through `onError`; a
   `reset()` invoked outside composition (a user gesture) is always honored and clears the
-  guard. A hard containment cap (64 consecutive contained failures of one boundary with
-  no success and no user reset) is the final backstop: beyond it the error propagates as
-  if the boundary were absent.
+  guard. Errors forwarded through `throwToBoundary` do not count toward the guard — they
+  are raised by work that ran after a successful composition, so their recurrence is
+  bounded by their own triggers. Two hard backstops share a cap of 64: the runtime's
+  initial-composition re-attempt loop gives up (surfacing a runtime error) after 64
+  contained failures in one `composeInitial` call, and a single boundary position stops
+  containing after 64 recorded failures with no success and no user reset in between.
+- **`onError` is per-containment.** Delivery is tracked by a monotonic error generation,
+  not by throwable identity: re-containing the *same* `Throwable` instance on a later
+  failure is reported again, and a containment whose boundary immediately recovered
+  (a `resetKeys` change consumed in the same pass) is still reported.
 - **Identity caveat.** A boundary's contained-error record is keyed by its composite key
-  hash. Sibling boundaries created from the same call site (e.g. in a loop) should be
-  wrapped in `key(...)` to keep their records distinct, exactly like other
-  position-keyed runtime state.
+  hash **plus its marker-nesting depth**. The depth disambiguates identically-structured
+  *nested* boundaries (recursive same-call-site nesting cycles the composite hash back to
+  a previous value after a structure-dependent number of levels — discovered by the
+  runaway-escalation test); same-call-site *siblings* (same hash, same depth) should be
+  wrapped in `key(...)` to keep their records distinct, exactly like other position-keyed
+  runtime state.
 
 ## Design: why runtime-only containment works (no compiler change in v1)
 
@@ -135,9 +145,15 @@ how much work a contained failure costs, not the observable semantics.
   is defensive: it must never throw while unwinding a real failure.
 - **Trip.** The `Recomposer` consumes the captured marker in `composingOrContain` (a
   variant of `composing` that **disposes** the failed pass's snapshot instead of applying
-  it). Tripping records the error in a **composer-kept registry keyed by the boundary's
-  composite key hash** — not in the boundary's remembered state, which the failed pass
-  may have abandoned — and invalidates the boundary's recompose scope.
+  it, and withholds the pass's write set from the frame's modified-values accumulator so
+  rolled-back writes cannot schedule spurious recompositions). Tripping records the error
+  in a **composer-kept registry keyed by the boundary's composite key hash and
+  marker-nesting depth** — not in the boundary's remembered state, which the failed pass
+  may have abandoned — and invalidates the boundary's recompose scope. The registry entry
+  is removed when the boundary recovers, when it is forgotten (removed from composition),
+  or when the pass that created its state is abandoned, so tripped-then-removed
+  boundaries neither leak their `Throwable` nor poison a later boundary reusing the same
+  call site.
 - **Re-attempt.** For an initial composition, `Recomposer.composeInitial` loops: each
   contained failure trips a strictly higher boundary (the fallback is outside the marker
   group), so the loop is bounded by boundary nesting depth. For recomposition,
@@ -154,6 +170,14 @@ how much work a contained failure costs, not the observable semantics.
   during layout) is contained only by boundaries inside that subcomposition in v1. The
   recomposer's `errorState` is cleared when a nested failure ends up contained, so a
   contained error never wedges the recomposer.
+- **Known containment misses (documented, safe).** Movable content's *deferred insertion*
+  pass (`performInitialMovableContentInserts` / `performInsertValues`) does not attempt
+  containment — a boundary inside `movableContentOf` content does not contain a failure
+  raised during that deferred insert; committed movable-content boundaries contain
+  recomposition failures normally, and a tripped boundary's error state moves with the
+  content. Under live edit / hot reload, a subcomposition failure with no boundary inside
+  the subcomposition is captured by hot-reload recovery before a parent boundary can
+  contain it.
 
 ## Relationship to Observables / RemoteObservableBoundary
 
@@ -182,9 +206,18 @@ guard as backstop, no subcomposition.
 `compose/runtime/runtime/src/nonEmulatorCommonTest/kotlin/androidx/compose/runtime/ErrorBoundaryTests.kt`
 runs the suite under **both** composer implementations (gap buffer and link buffer):
 initial-composition containment, recomposition containment with sibling preservation,
-exactly-once `onError`, uncontained propagation without a boundary, fallback escalation
-to the outer boundary, nested boundaries, explicit reset, `resetKeys` recovery, the
-bounded re-throw guard (loop held + reported), the imperative `throwToBoundary` channel,
-`onForgotten` teardown of replaced content, `onAbandoned` for values remembered in failed
-passes, snapshot rollback of failed-pass state writes, sibling independence, re-containment
-after recovery, and zero-overhead transparency of a healthy boundary.
+per-containment `onError` (exactly once per containment, again for the same `Throwable`
+instance, and still delivered when `resetKeys` recovery lands in the same pass),
+uncontained propagation without a boundary, fallback escalation to the outer boundary,
+nested boundaries, deep-throw attribution without re-running the protected content,
+explicit and fallback-issued (guarded) resets, `resetKeys` recovery incl. guard clearing
+after partial failures, the bounded re-throw guard (loop held + reported), the runaway
+nested-escalation hard cap, the imperative `throwToBoundary` channel (incl. repeat
+forwards), `onForgotten` teardown of replaced content, `onAbandoned` for values
+remembered in failed passes, snapshot rollback of failed-pass state writes including
+same-pass sibling changes being re-applied, sibling independence, removal-while-tripped
+then fresh re-add, boundaries inside subcompositions (initial + recomposition, recomposer
+stays healthy), boundaries inside `movableContentOf` (tripped state moves with the
+content and recovers), pausable composition containment, diagnostic composition stack
+traces in `CompositionErrorInfo`, re-containment after recovery, and transparency of a
+healthy boundary.

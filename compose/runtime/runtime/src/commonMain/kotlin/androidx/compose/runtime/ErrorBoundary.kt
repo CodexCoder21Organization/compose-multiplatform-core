@@ -114,7 +114,8 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  *
  * An error thrown while composing [fallback] itself is not contained by this boundary; it
  * escalates to the next enclosing [ErrorBoundary], if any, exactly like React's fallback
- * semantics.
+ * semantics. For the same reason, [LocalErrorBoundary] read from inside [fallback] resolves to
+ * the next *enclosing* boundary (or `null`), never to this boundary.
  *
  * Recovery re-attempts [content], it does not merely re-render the fallback: an explicit
  * [ErrorBoundaryScope.reset] and a change to any element of [resetKeys] both discard the error
@@ -123,11 +124,24 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * re-attempts (from [resetKeys] changes or composition-time resets) are limited while the boundary
  * keeps failing with no successful composition in between, after which the boundary holds the
  * fallback and reports the loop through [onError]; a reset invoked outside composition (a user
- * gesture) is always honored.
+ * gesture) is always honored. Errors forwarded through [ErrorBoundaryHandle.throwToBoundary] do
+ * not count toward this guard: they are raised by work that ran after a successful composition,
+ * so their recurrence is bounded by their own triggers.
+ *
+ * [onError] is invoked once per contained error — including an error whose boundary immediately
+ * recovered through [resetKeys] or a reset in the same pass, and including re-containment of the
+ * same [Throwable] instance on a later failure.
  *
  * Two sibling boundaries created from the same call site (for example, in a loop) share the same
  * composite key hash unless distinguished with [key]; wrap such boundaries in [key] to keep their
  * contained error states distinct.
+ *
+ * Known v1 limitations: content relocated with [movableContentOf] that fails *while being moved*
+ * (or whose boundary tripped in one composition and was moved to another before recovering) may
+ * miss containment for that pass and be re-attempted in the destination — safe, but the original
+ * pass's error attribution is lost. When live edit / hot reload is enabled, an error raised in a
+ * subcomposition without its own boundary is captured by the hot-reload recovery before any
+ * boundary in the parent composition can contain it.
  *
  * @param fallback Composed in place of [content] while the boundary contains an error. Receives
  *   an [ErrorBoundaryScope] exposing the contained error and a reset operation.
@@ -152,6 +166,7 @@ public fun ErrorBoundary(
     val state = remember { ErrorBoundaryState() }
     state.composer = composer
     state.keyHash = keyHash
+    state.depth = composer.errorBoundaryNestingDepth()
     state.recomposeScope = currentRecomposeScope
 
     // Pick up an error the runtime contained for this boundary position, then any signals raised
@@ -165,7 +180,9 @@ public fun ErrorBoundary(
         // The marker group is what the runtime finds when it walks up from a throw raised while
         // composing the protected content. The fallback branch below is deliberately NOT wrapped
         // in this group so that an error thrown by the fallback escalates to the next enclosing
-        // boundary instead of being contained here.
+        // boundary instead of being contained here. Note that this also means LocalErrorBoundary
+        // read from inside the fallback resolves to the next ENCLOSING boundary (or null), never
+        // to this boundary.
         composer.startMovableGroup(errorBoundaryContentKey, state.marker)
         CompositionLocalProvider(LocalErrorBoundary provides state.handle, content = content)
         composer.endMovableGroup()
@@ -175,9 +192,13 @@ public fun ErrorBoundary(
     } else {
         val scope = remember(error) { ErrorBoundaryScopeView(error, state) }
         scope.fallback()
-        if (onError != null) {
-            SideEffect { state.dispatchPendingNotifications(onError) }
-        }
+    }
+    // Dispatched from BOTH branches: an error that was contained and then immediately auto-reset
+    // (for example a resetKeys change arriving in the same pass that consumes the trip) is still
+    // a contained error and must still be reported. Runs as a commit-phase side effect after the
+    // pass that observed the error applies.
+    if (onError != null && state.hasPendingNotifications) {
+        SideEffect { state.dispatchPendingNotifications(onError) }
     }
 }
 
@@ -191,22 +212,18 @@ public fun ErrorBoundary(
 private const val MaxConsecutiveAutoResetAttempts = 3
 
 /**
- * An absolute upper bound on consecutive contained failures of a single boundary position with no
- * successful composition and no out-of-composition reset in between. Beyond this the runtime stops
- * containing the error, which surfaces it like an unguarded composition failure. This is a
- * backstop against pathological containment loops; the auto-reset guard above keeps well-behaved
- * boundaries far below it.
+ * Two distinct backstops share this bound:
+ * - [Recomposer]'s initial-composition re-attempt loop gives up after this many contained
+ *   failures in a single `composeInitial` call. Each contained failure trips a strictly higher
+ *   enclosing boundary, so reaching the cap indicates a containment bug, and the failure is
+ *   surfaced as a runtime error.
+ * - A single boundary position stops containing after this many recorded failures with no
+ *   successful composition and no out-of-composition reset in between (see
+ *   [ErrorBoundaryMarker.trip]) — only reachable if the auto-reset guard is bypassed
+ *   pathologically, in which case the error propagates as if the boundary were absent.
  */
 internal const val ErrorBoundaryHardContainmentCap = 64
 
-/** No pending reset request. */
-private const val ResetNone = 0
-
-/** A reset requested during composition; subject to the bounded re-attempt guard. */
-private const val ResetGuarded = 1
-
-/** A reset requested outside composition (user gesture); always honored. */
-private const val ResetForced = 2
 
 /**
  * The identity the runtime uses to attribute a contained error to a boundary. Stored as the object
@@ -236,9 +253,10 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
      * composer-confined storage — not snapshot state — so that it survives the disposal of the
      * failed pass's snapshot.
      */
-    fun trip(error: Throwable): Boolean {
+    fun trip(error: Throwable, depth: Int): Boolean {
         val composer = state.composer ?: return false
-        val record = composer.errorBoundaryTripRecord(state.keyHash, create = true) ?: return false
+        val record =
+            composer.errorBoundaryTripRecord(state.keyHash, depth, create = true) ?: return false
         if (record.failedAttempts >= ErrorBoundaryHardContainmentCap) return false
         record.failedAttempts++
         record.error = error
@@ -249,26 +267,43 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
 
 /**
  * The per-position record of contained errors, kept on the composer keyed by the boundary's
- * composite key hash. Keeping it on the composer rather than in the boundary's remembered state is
- * what makes containment of *initial* composition failures work: the failed pass's remembered
- * state is abandoned, but this record survives to be consumed by the fresh boundary state of the
- * re-attempted pass.
+ * composite key hash plus its marker-nesting [depth]. Keeping it on the composer rather than in
+ * the boundary's remembered state is what makes containment of *initial* composition failures
+ * work: the failed pass's remembered state is abandoned, but this record survives to be consumed
+ * by the fresh boundary state of the re-attempted pass. Records sharing a hash chain through
+ * [next].
  */
-internal class ErrorBoundaryTripRecord {
+internal class ErrorBoundaryTripRecord(@JvmField val depth: Int) {
     @JvmField var error: Throwable? = null
     @JvmField var failedAttempts: Int = 0
+    @JvmField var next: ErrorBoundaryTripRecord? = null
 }
 
-/** The remembered state of one [ErrorBoundary] instance. */
+/**
+ * The remembered state of one [ErrorBoundary] instance.
+ *
+ * Implements [RememberObserver] so that the boundary's composer-kept trip record is removed when
+ * the boundary leaves the composition ([onForgotten]) or when the pass that created this state is
+ * abandoned ([onAbandoned]) — otherwise a tripped-then-removed boundary would leak its record (and
+ * the recorded [Throwable]) for the lifetime of the composition, and a later boundary reusing the
+ * same call site (same composite key hash) would inherit the stale error. On the abandoned-pass
+ * path the record is (re)created by the trip that happens *after* abandonment is dispatched, so
+ * clearing here never loses a live containment.
+ */
 @OptIn(ExperimentalComposeRuntimeApi::class)
-internal class ErrorBoundaryState {
-    @JvmField var composer: InternalComposer? = null
+internal class ErrorBoundaryState : RememberObserver {
+    // Written on the composer thread; read from arbitrary threads by requestReset/throwToBoundary,
+    // hence volatile.
+    @Volatile @JvmField var composer: InternalComposer? = null
     @JvmField var keyHash: CompositeKeyHashCode = EmptyCompositeKeyHashCode
-    @JvmField var recomposeScope: RecomposeScope? = null
+    @JvmField var depth: Int = 0
+    @Volatile @JvmField var recomposeScope: RecomposeScope? = null
 
     val marker: ErrorBoundaryMarker = ErrorBoundaryMarker(this)
 
     val handle: ErrorBoundaryHandle = ErrorBoundaryHandle { error ->
+        // Latest-wins by design: concurrent forwards race to a single pending slot; the boundary
+        // shows (and reports) the most recent forwarded error.
         pendingImperativeError = error
         recomposeScope?.invalidate()
     }
@@ -277,10 +312,23 @@ internal class ErrorBoundaryState {
     @JvmField var error: Throwable? = null
 
     /**
-     * Consecutive contained failures with no successful content composition in between. Mirrors
-     * the composer-kept [ErrorBoundaryTripRecord.failedAttempts].
+     * Consecutive contained composition failures with no successful content composition in
+     * between. Mirrors the composer-kept [ErrorBoundaryTripRecord.failedAttempts]. Errors
+     * forwarded through [ErrorBoundaryHandle.throwToBoundary] do NOT count: they are raised by
+     * work that ran after a successful composition, so their recurrence is bounded by their own
+     * triggers rather than by the composition re-attempt guard.
      */
     @JvmField var failedAttempts: Int = 0
+
+    /**
+     * Monotonic count of errors this boundary has accepted (contained trips and forwarded
+     * errors). Together with [notifiedGeneration] this makes `onError` delivery per-containment:
+     * re-containing the *same* [Throwable] instance is a new failure and is reported again.
+     */
+    @JvmField var errorGeneration: Int = 0
+
+    /** The generation up to which errors have been delivered to `onError`. */
+    @JvmField var notifiedGeneration: Int = 0
 
     /** The error not yet reported through `onError`, if any. */
     @JvmField var pendingErrorNotification: Throwable? = null
@@ -290,32 +338,44 @@ internal class ErrorBoundaryState {
     /** Set when the auto-reset guard suppressed a re-attempt; reported through `onError`. */
     @JvmField var pendingLoopNotification: Throwable? = null
 
-    /** The last error delivered to `onError`, to deliver each contained error exactly once. */
-    @JvmField var lastNotifiedError: Throwable? = null
-
     @JvmField var lastResetKeys: Array<Any?>? = null
 
     /** Error forwarded from outside composition through [ErrorBoundaryHandle.throwToBoundary]. */
     @Volatile @JvmField var pendingImperativeError: Throwable? = null
 
-    /** Reset requested through [ErrorBoundaryScope.reset]; one of the Reset* constants. */
-    @Volatile @JvmField var pendingReset: Int = ResetNone
+    /**
+     * Reset requests are split into two independent flags rather than a single max-merged value so
+     * that a forced (out-of-composition) reset arriving concurrently with the body consuming a
+     * guarded one can never be lost: consuming one flag does not clear the other, and the forced
+     * request's invalidate() schedules another pass that will observe it.
+     */
+    @Volatile @JvmField var pendingGuardedReset: Boolean = false
+
+    @Volatile @JvmField var pendingForcedReset: Boolean = false
 
     val hasFailureBookkeeping: Boolean
-        get() = failedAttempts > 0 || lastNotifiedError != null
+        get() = failedAttempts > 0 || pendingLoopNotification != null
+
+    val hasPendingNotifications: Boolean
+        get() = errorGeneration > notifiedGeneration || pendingLoopNotification != null
+
+    private fun acceptError(accepted: Throwable) {
+        error = accepted
+        errorGeneration++
+        pendingErrorNotification = accepted
+        pendingErrorInfo = CompositionErrorInfo(composeStackTraceOf(accepted))
+    }
 
     /**
      * Consumes the error, if any, that the runtime contained for this boundary position since the
      * boundary last composed. Runs on the composer thread at the start of the boundary's body.
      */
     fun consumePendingTrip() {
-        val record = composer?.errorBoundaryTripRecord(keyHash, create = false) ?: return
+        val record = composer?.errorBoundaryTripRecord(keyHash, depth, create = false) ?: return
         val tripped = record.error
         if (tripped != null) {
             record.error = null
-            error = tripped
-            pendingErrorNotification = tripped
-            pendingErrorInfo = CompositionErrorInfo(composeStackTraceOf(tripped))
+            acceptError(tripped)
         }
         failedAttempts = record.failedAttempts
     }
@@ -325,23 +385,18 @@ internal class ErrorBoundaryState {
         val imperative = pendingImperativeError
         if (imperative != null) {
             pendingImperativeError = null
-            error = imperative
-            pendingErrorNotification = imperative
-            pendingErrorInfo = CompositionErrorInfo(composeStackTraceOf(imperative))
-            // Forwarded errors count against the guard like contained ones so that an effect that
-            // keeps failing cannot spin the boundary through data-driven resets.
-            failedAttempts++
-            syncFailureCountToRecord()
+            acceptError(imperative)
         }
-        val reset = pendingReset
-        if (reset != ResetNone) {
-            pendingReset = ResetNone
+        if (pendingForcedReset) {
+            pendingForcedReset = false
+            pendingGuardedReset = false
             if (error != null) {
-                if (reset == ResetForced) {
-                    clearErrorForRetry(clearFailures = true)
-                } else {
-                    autoReset()
-                }
+                clearErrorForRetry(clearFailures = true)
+            }
+        } else if (pendingGuardedReset) {
+            pendingGuardedReset = false
+            if (error != null) {
+                autoReset()
             }
         }
     }
@@ -375,9 +430,9 @@ internal class ErrorBoundaryState {
     private fun syncFailureCountToRecord() {
         val composer = composer ?: return
         if (failedAttempts == 0) {
-            composer.clearErrorBoundaryTripRecord(keyHash)
+            composer.clearErrorBoundaryTripRecord(keyHash, depth)
         } else {
-            composer.errorBoundaryTripRecord(keyHash, create = true)?.failedAttempts =
+            composer.errorBoundaryTripRecord(keyHash, depth, create = true)?.failedAttempts =
                 failedAttempts
         }
     }
@@ -385,20 +440,21 @@ internal class ErrorBoundaryState {
     /** Called as a side effect after the protected content composes and commits successfully. */
     fun noteContentCommitted() {
         failedAttempts = 0
-        lastNotifiedError = null
         pendingLoopNotification = null
-        composer?.clearErrorBoundaryTripRecord(keyHash)
+        composer?.clearErrorBoundaryTripRecord(keyHash, depth)
     }
 
     /** Delivers not-yet-reported errors to `onError`; runs as a commit-phase side effect. */
     fun dispatchPendingNotifications(onError: (Throwable, CompositionErrorInfo) -> Unit) {
-        val toNotify = pendingErrorNotification
-        if (toNotify != null && toNotify !== lastNotifiedError) {
-            lastNotifiedError = toNotify
+        if (errorGeneration > notifiedGeneration) {
+            notifiedGeneration = errorGeneration
+            val toNotify = pendingErrorNotification
             pendingErrorNotification = null
             val info = pendingErrorInfo ?: CompositionErrorInfo(null)
             pendingErrorInfo = null
-            onError(toNotify, info)
+            if (toNotify != null) {
+                onError(toNotify, info)
+            }
         }
         val loop = pendingLoopNotification
         if (loop != null) {
@@ -411,10 +467,22 @@ internal class ErrorBoundaryState {
     }
 
     fun requestReset() {
-        val force = composer?.isComposing != true
-        val requested = if (force) ResetForced else ResetGuarded
-        if (requested > pendingReset) pendingReset = requested
+        if (composer?.isComposing == true) {
+            pendingGuardedReset = true
+        } else {
+            pendingForcedReset = true
+        }
         recomposeScope?.invalidate()
+    }
+
+    override fun onRemembered() {}
+
+    override fun onForgotten() {
+        composer?.clearErrorBoundaryTripRecord(keyHash, depth)
+    }
+
+    override fun onAbandoned() {
+        composer?.clearErrorBoundaryTripRecord(keyHash, depth)
     }
 }
 

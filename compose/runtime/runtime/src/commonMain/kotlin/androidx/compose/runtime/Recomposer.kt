@@ -1186,19 +1186,31 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                 val contained =
                     composingOrContain(composition, null) { composition.composeContent(content) }
                 if (!contained) break
-                containedAttempts++
-                if (containedAttempts >= ErrorBoundaryHardContainmentCap) {
-                    composeRuntimeError(
-                        "Composition failed $containedAttempts times with all failures contained " +
-                            "to error boundaries; giving up on the re-attempt loop."
-                    )
-                }
             } catch (e: Throwable) {
                 if (newComposition) {
                     synchronized(stateLock) { unregisterCompositionLocked(composition) }
                 }
 
                 processCompositionError(e, composition, recoverable = true)
+                return
+            }
+            containedAttempts++
+            if (containedAttempts >= ErrorBoundaryHardContainmentCap) {
+                // Only reachable if containment fails to make progress (a containment bug — each
+                // contained failure is supposed to trip a strictly higher enclosing boundary).
+                // Surface it as a composition error rather than looping forever; routed outside
+                // the try so it cannot be re-contained or mislabeled by the catch above.
+                if (newComposition) {
+                    synchronized(stateLock) { unregisterCompositionLocked(composition) }
+                }
+                processCompositionError(
+                    ComposeRuntimeError(
+                        "Compose Runtime internal error. Composition failed $containedAttempts " +
+                            "times with every failure contained to an error boundary; giving up " +
+                            "on the re-attempt loop."
+                    ),
+                    composition,
+                )
                 return
             }
         }
@@ -1489,23 +1501,39 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
      * on the re-attempted pass. Returns `true` when the failure was contained; `false` when
      * [block] completed normally (and the snapshot was applied). Failures no boundary can contain
      * propagate exactly as they do from [composing].
+     *
+     * The pass's write set is collected into a local set and merged into [modifiedValues] only
+     * when the pass completes (successfully or with an uncontained failure, matching [composing]):
+     * a contained pass's writes are rolled back, so publishing them to the frame's modified-values
+     * accumulator would schedule spurious recompositions of other compositions for values that
+     * never changed.
      */
     private inline fun composingOrContain(
         composition: ControlledComposition,
         modifiedValues: MutableScatterSet<Any>?,
         block: () -> Unit,
     ): Boolean {
+        val passModifiedValues = if (modifiedValues != null) MutableScatterSet<Any>() else null
         val snapshot =
             Snapshot.takeMutableSnapshot(
                 readObserverOf(composition),
-                writeObserverOf(composition, modifiedValues),
+                writeObserverOf(composition, passModifiedValues),
             )
         try {
             snapshot.enter(block)
         } catch (e: Throwable) {
-            val marker =
-                (composition as? CompositionImpl)?.composer?.takeCaughtErrorBoundaryMarker()
-            if (marker != null && marker.trip(e)) {
+            val composer = (composition as? CompositionImpl)?.composer
+            val marker = composer?.takeCaughtErrorBoundaryMarker()
+            val contained =
+                marker != null &&
+                    try {
+                        marker.trip(e, composer.caughtErrorBoundaryDepth)
+                    } catch (tripFailure: Throwable) {
+                        // Containment bookkeeping must never mask the original composition error.
+                        e.addSuppressed(tripFailure)
+                        false
+                    }
+            if (contained) {
                 // Dispose the failed pass's snapshot instead of applying it: state writes made
                 // during the failed pass are rolled back. The boundary records the error in
                 // composer-confined storage precisely so that it survives this disposal.
@@ -1513,8 +1541,14 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                 onErrorBoundaryContained(e)
                 return true
             }
+            if (passModifiedValues != null && modifiedValues != null) {
+                passModifiedValues.forEach { modifiedValues.add(it) }
+            }
             applyAndCheck(snapshot)
             throw e
+        }
+        if (passModifiedValues != null && modifiedValues != null) {
+            passModifiedValues.forEach { modifiedValues.add(it) }
         }
         applyAndCheck(snapshot)
         return false

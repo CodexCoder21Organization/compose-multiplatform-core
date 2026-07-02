@@ -1039,27 +1039,45 @@ internal abstract class InternalComposer : Composer {
      * most recent composition pass threw, captured by the composer's catch before the pass is
      * aborted (which resets the position information the capture needs). Consumed by the
      * [Recomposer] with [takeCaughtErrorBoundaryMarker] to decide whether the failure can be
-     * contained to a boundary instead of propagating.
+     * contained to a boundary instead of propagating. [caughtErrorBoundaryDepth] is the marker's
+     * nesting depth — the number of error boundary marker groups enclosing it — captured by the
+     * same walk.
      */
     internal var caughtErrorBoundaryMarker: ErrorBoundaryMarker? = null
+
+    internal var caughtErrorBoundaryDepth: Int = 0
 
     internal fun takeCaughtErrorBoundaryMarker(): ErrorBoundaryMarker? =
         caughtErrorBoundaryMarker.also { caughtErrorBoundaryMarker = null }
 
     /**
-     * Errors contained to error boundaries, keyed by the boundary's composite key hash. Kept on
-     * the composer — not in the boundary's remembered state — so that a boundary whose very first
-     * composition failed (abandoning its remembered state with the rest of the failed pass) can
-     * still find its contained error when the re-attempted pass composes it afresh.
+     * The number of error boundary marker groups enclosing the current composition position. Used
+     * by [ErrorBoundary] to key its trip record: the composite key hash alone is not collision
+     * free for identically-structured *nested* boundaries (each recursion level applies the same
+     * rotate-and-xor sequence to the hash, which cycles back to a previous value after a
+     * structure-dependent number of levels), and a collision would let one boundary consume
+     * another's contained error and skip escalation levels. Depth disambiguates the nested case;
+     * same-call-site *siblings* (same hash, same depth) remain the documented `key(...)` caveat.
+     */
+    internal abstract fun errorBoundaryNestingDepth(): Int
+
+    /**
+     * Errors contained to error boundaries, keyed by the boundary's composite key hash plus its
+     * marker-nesting depth. Kept on the composer — not in the boundary's remembered state — so
+     * that a boundary whose very first composition failed (abandoning its remembered state with
+     * the rest of the failed pass) can still find its contained error when the re-attempted pass
+     * composes it afresh.
      *
      * Only accessed on the composition's applier thread. Allocated lazily; compositions that never
-     * contain an error never pay for it.
+     * contain an error never pay for it. Records for the same hash but different depths form a
+     * short linked chain.
      */
     private var errorBoundaryTrips: MutableScatterMap<CompositeKeyHashCode, ErrorBoundaryTripRecord>? =
         null
 
     internal fun errorBoundaryTripRecord(
         keyHash: CompositeKeyHashCode,
+        depth: Int,
         create: Boolean,
     ): ErrorBoundaryTripRecord? {
         val map =
@@ -1071,13 +1089,33 @@ internal abstract class InternalComposer : Composer {
                 } else {
                     return null
                 }
-        val existing = map[keyHash]
-        if (existing != null || !create) return existing
-        return ErrorBoundaryTripRecord().also { map[keyHash] = it }
+        var record = map[keyHash]
+        while (record != null && record.depth != depth) record = record.next
+        if (record != null || !create) return record
+        return ErrorBoundaryTripRecord(depth).also {
+            it.next = map[keyHash]
+            map[keyHash] = it
+        }
     }
 
-    internal fun clearErrorBoundaryTripRecord(keyHash: CompositeKeyHashCode) {
-        errorBoundaryTrips?.remove(keyHash)
+    internal fun clearErrorBoundaryTripRecord(keyHash: CompositeKeyHashCode, depth: Int) {
+        val map = errorBoundaryTrips ?: return
+        val head = map[keyHash] ?: return
+        if (head.depth == depth) {
+            val rest = head.next
+            if (rest == null) map.remove(keyHash) else map[keyHash] = rest
+            return
+        }
+        var previous = head
+        var current = head.next
+        while (current != null) {
+            if (current.depth == depth) {
+                previous.next = current.next
+                return
+            }
+            previous = current
+            current = current.next
+        }
     }
 }
 
