@@ -87,14 +87,45 @@ private fun Project.configureTests() {
 private fun enableBinaryCompatibilityValidator(project: Project) {
     project.afterEvaluate {
         if (JetBrainsPublication.shouldPublish(project)) {
+            if (!hostSupportsKlibAbiValidation()) {
+                // The binary-compatibility-validator plugin resolves the Kotlin/Native host
+                // target eagerly while being applied, so on hosts the Kotlin/Native toolchain
+                // does not recognize it cannot even be applied.
+                project.logger.warn(
+                    "Skipping binary compatibility validation for ${project.path}: the " +
+                        "Kotlin/Native toolchain does not recognize this host (see " +
+                        "org.jetbrains.kotlin.konan.target.HostManager.host), which the " +
+                        "binary-compatibility-validator plugin requires."
+                )
+                return@afterEvaluate
+            }
             project.apply(plugin = "org.jetbrains.kotlinx.binary-compatibility-validator")
             project.extensions.getByType(ApiValidationExtension::class.java).apply {
-                klib.enabled = true
+                // The property allows running the JVM-only apiDump/apiCheck on hosts where the
+                // Kotlin/Native toolchain cannot produce klibs.
+                klib.enabled =
+                    !project.providers
+                        .gradleProperty("jetbrains.compose.disableKlibAbiValidation")
+                        .isPresent
                 nonPublicMarkers += NON_PUBLIC_MARKERS
             }
         }
     }
 }
+
+/**
+ * Klib ABI validation resolves the Kotlin/Native host target eagerly when the
+ * binary-compatibility-validator plugin is applied, which fails on hosts the Kotlin/Native
+ * toolchain does not recognize (for example linux/aarch64). On such hosts the validation cannot
+ * run at all, so it is skipped instead of failing the whole build.
+ */
+private fun hostSupportsKlibAbiValidation(): Boolean =
+    try {
+        org.jetbrains.kotlin.konan.target.HostManager.host
+        true
+    } catch (_: Throwable) {
+        false
+    }
 
 // Not ideal to have a list instead of a pattern to match but this is all the API supports right now
 // https://github.com/Kotlin/binary-compatibility-validator/issues/280
