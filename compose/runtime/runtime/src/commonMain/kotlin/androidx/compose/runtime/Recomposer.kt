@@ -1184,7 +1184,9 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
         while (true) {
             try {
                 val contained =
-                    composingOrContain(composition, null) { composition.composeContent(content) }
+                    composingOrContain(composition, null, invalidateScopeOnTrip = false) {
+                        composition.composeContent(content)
+                    }
                 if (!contained) break
             } catch (e: Throwable) {
                 if (newComposition) {
@@ -1338,7 +1340,7 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
 
         var hasChanges = false
         val contained =
-            composingOrContain(composition, modifiedValues) {
+            composingOrContain(composition, modifiedValues, invalidateScopeOnTrip = true) {
                 if (modifiedValues?.isNotEmpty() == true) {
                     // Record write performed by a previous composition as if they happened during
                     // composition.
@@ -1511,6 +1513,7 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
     private inline fun composingOrContain(
         composition: ControlledComposition,
         modifiedValues: MutableScatterSet<Any>?,
+        invalidateScopeOnTrip: Boolean,
         block: () -> Unit,
     ): Boolean {
         val passModifiedValues = if (modifiedValues != null) MutableScatterSet<Any>() else null
@@ -1527,7 +1530,7 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
             val contained =
                 marker != null &&
                     try {
-                        marker.trip(e, composer.caughtErrorBoundaryDepth)
+                        marker.trip(e, composer.caughtErrorBoundaryDepth, invalidateScopeOnTrip)
                     } catch (tripFailure: Throwable) {
                         // Containment bookkeeping must never mask the original composition error.
                         e.addSuppressed(tripFailure)

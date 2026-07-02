@@ -253,14 +253,21 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
      * composer-confined storage — not snapshot state — so that it survives the disposal of the
      * failed pass's snapshot.
      */
-    fun trip(error: Throwable, depth: Int): Boolean {
+    fun trip(error: Throwable, depth: Int, invalidateScope: Boolean): Boolean {
         val composer = state.composer ?: return false
         val record =
             composer.errorBoundaryTripRecord(state.keyHash, depth, create = true) ?: return false
         if (record.failedAttempts >= ErrorBoundaryHardContainmentCap) return false
         record.failedAttempts++
         record.error = error
-        state.recomposeScope?.invalidate()
+        // Only a recomposition containment needs to schedule the boundary's fallback pass; the
+        // initial-composition retry loop re-attempts synchronously, and its boundary scope
+        // belongs to the abandoned pass — invalidating it can alias a committed slot-table
+        // location through the abandoned insert table's stale anchor and recompose an unrelated
+        // committed scope.
+        if (invalidateScope) {
+            state.recomposeScope?.invalidate()
+        }
         return true
     }
 }
