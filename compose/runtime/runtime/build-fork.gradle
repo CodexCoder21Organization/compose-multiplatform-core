@@ -39,7 +39,6 @@ androidXMultiplatform {
                 it.returnDefaultValues = true
             }
         }
-        desktop()
         mingwX64()
         linux()
         mac()
@@ -50,8 +49,43 @@ androidXMultiplatform {
         wasmJs()
     }
 
+    // The desktop target is fork-built from the in-tree runtime source (a partial redirect)
+    // instead of redirecting to the published androidx.compose.runtime artifact: this fork
+    // carries the error-boundary runtime change (see ../ERROR_BOUNDARIES.md), which has not
+    // landed upstream yet. Move desktop() back into the redirect block when it lands.
+    desktop()
+
     defaultPlatform(PlatformIdentifier.ANDROID)
 
+    sourceSets {
+        def redirectVersion = project.redirectVersions.get('androidx.compose')
+
+        commonMain.dependencies {
+            api(libs.kotlinCoroutinesCore)
+            api("androidx.compose.runtime:runtime-annotation:$redirectVersion")
+            implementation("androidx.collection:collection:1.5.0")
+        }
+
+        commonTest.dependencies {
+            implementation(libs.kotlinTest)
+            implementation(libs.kotlinCoroutinesTest)
+            implementation(libs.kotlinReflect)
+            implementation(project(":compose:runtime:runtime-test-utils"))
+        }
+
+        create("nonEmulatorCommonTest").dependsOn(commonTest)
+        create("nonEmulatorJvmTest").dependsOn(nonEmulatorCommonTest)
+
+        create("nonAndroidMain").dependsOn(commonMain)
+        create("nonAndroidTest").dependsOn(commonTest)
+
+        desktopMain.dependsOn(nonAndroidMain)
+
+        desktopTest {
+            dependsOn(nonEmulatorJvmTest)
+            dependsOn(nonAndroidTest)
+        }
+    }
 }
 
 androidx {

@@ -19,6 +19,7 @@
 
 package androidx.compose.runtime
 
+import androidx.collection.MutableScatterMap
 import androidx.compose.runtime.Composer.Companion.Empty
 import androidx.compose.runtime.collection.ScopeMap
 import androidx.compose.runtime.composer.RememberManager
@@ -1032,6 +1033,52 @@ internal abstract class InternalComposer : Composer {
     )
 
     @TestOnly internal abstract fun parentKey(): Int
+
+    /**
+     * The [ErrorBoundaryMarker] of the nearest error boundary enclosing the position at which the
+     * most recent composition pass threw, captured by the composer's catch before the pass is
+     * aborted (which resets the position information the capture needs). Consumed by the
+     * [Recomposer] with [takeCaughtErrorBoundaryMarker] to decide whether the failure can be
+     * contained to a boundary instead of propagating.
+     */
+    internal var caughtErrorBoundaryMarker: ErrorBoundaryMarker? = null
+
+    internal fun takeCaughtErrorBoundaryMarker(): ErrorBoundaryMarker? =
+        caughtErrorBoundaryMarker.also { caughtErrorBoundaryMarker = null }
+
+    /**
+     * Errors contained to error boundaries, keyed by the boundary's composite key hash. Kept on
+     * the composer — not in the boundary's remembered state — so that a boundary whose very first
+     * composition failed (abandoning its remembered state with the rest of the failed pass) can
+     * still find its contained error when the re-attempted pass composes it afresh.
+     *
+     * Only accessed on the composition's applier thread. Allocated lazily; compositions that never
+     * contain an error never pay for it.
+     */
+    private var errorBoundaryTrips: MutableScatterMap<CompositeKeyHashCode, ErrorBoundaryTripRecord>? =
+        null
+
+    internal fun errorBoundaryTripRecord(
+        keyHash: CompositeKeyHashCode,
+        create: Boolean,
+    ): ErrorBoundaryTripRecord? {
+        val map =
+            errorBoundaryTrips
+                ?: if (create) {
+                    MutableScatterMap<CompositeKeyHashCode, ErrorBoundaryTripRecord>().also {
+                        errorBoundaryTrips = it
+                    }
+                } else {
+                    return null
+                }
+        val existing = map[keyHash]
+        if (existing != null || !create) return existing
+        return ErrorBoundaryTripRecord().also { map[keyHash] = it }
+    }
+
+    internal fun clearErrorBoundaryTripRecord(keyHash: CompositeKeyHashCode) {
+        errorBoundaryTrips?.remove(keyHash)
+    }
 }
 
 /**
@@ -1383,6 +1430,14 @@ internal const val defaultsKey = -127
 @PublishedApi internal val reference: Any = OpaqueKey("reference")
 
 @PublishedApi internal const val reuseKey: Int = 207
+
+/**
+ * The key of the group an [ErrorBoundary] wraps its protected content in. The group's object key
+ * is the boundary's [ErrorBoundaryMarker]; the composer finds it by walking parent groups up from
+ * the position of a throw to attribute a contained composition error to its nearest enclosing
+ * boundary.
+ */
+internal const val errorBoundaryContentKey: Int = 208
 
 private const val invalidGroupLocation = -2
 

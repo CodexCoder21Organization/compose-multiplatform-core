@@ -1447,6 +1447,40 @@ internal class LinkComposer(
             null
         }
 
+    /**
+     * Finds the [ErrorBoundaryMarker] of the nearest error boundary enclosing the current
+     * composition position, walking parent groups the same way [currentStackTrace] does: first up
+     * the insertion builder's chain (content being inserted by this pass), then up the reader's
+     * chain (committed groups). Returns `null` when no enclosing boundary exists. Called while
+     * unwinding a composition failure, so it must never throw.
+     */
+    private fun findEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            val builder = builder
+            if (!builder.isClosed && !builder.isEmpty) {
+                builder.table.addressSpace.traverseGroupAndParents(builder.parentGroup) { group ->
+                    if (builder.groupKey(group) == errorBoundaryContentKey) {
+                        val marker = builder.groupObjectKey(group)
+                        if (marker is ErrorBoundaryMarker) return marker
+                    }
+                }
+            }
+            val reader = reader
+            if (!reader.isClosed && !reader.isEmpty) {
+                reader.table.addressSpace.traverseGroupAndParents(reader.parentGroup) { group ->
+                    if (reader.hasObjectKey(group) && reader.groupKey(group) == errorBoundaryContentKey) {
+                        val marker = reader.groupObjectKey(group)
+                        if (marker is ErrorBoundaryMarker) return marker
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
     @InternalComposeApi
     private fun doCompose(
         invalidationsRequested: ScopeMap<RecomposeScopeImpl, Any>,
@@ -1461,6 +1495,7 @@ internal class LinkComposer(
             nodeIndex = 0
             var complete = false
             isComposing = true
+            caughtErrorBoundaryMarker = null
             observer?.onBeginComposition(composition)
             try {
                 startRoot()
@@ -1494,6 +1529,10 @@ internal class LinkComposer(
                 endRoot()
                 complete = true
             } catch (e: Throwable) {
+                // Capture the nearest enclosing error boundary now, while the reader/builder are
+                // still positioned where the throw happened; abortRoot() in the finally below
+                // resets that position.
+                caughtErrorBoundaryMarker = findEnclosingErrorBoundaryMarker()
                 throw e.attachComposeStackTrace { currentStackTrace() }
             } finally {
                 observer?.onEndComposition(composition)

@@ -2514,6 +2514,50 @@ internal class GapComposer(
     private fun stackTraceForGroup(group: Int, dataOffset: Int?): List<ComposeStackTraceFrame> =
         slotTable.read { it.traceForGroup(group, dataOffset) }
 
+    /**
+     * Finds the [ErrorBoundaryMarker] of the nearest error boundary enclosing the current
+     * composition position, walking parent groups the same way [currentStackTrace] does: first up
+     * the insertion writer's chain (content being inserted by this pass), then up the reader's
+     * chain (committed groups). Returns `null` when no enclosing boundary exists. Called while
+     * unwinding a composition failure, so it must never throw.
+     */
+    private fun findEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            if (!writer.closed && writer.size != 0) {
+                var group =
+                    if (writer.parent >= 0) writer.parent else writer.parent(writer.currentGroup)
+                while (group >= 0) {
+                    if (
+                        writer.isValid(group) &&
+                            writer.groupKey(group) == errorBoundaryContentKey &&
+                            writer.hasObjectKey(group)
+                    ) {
+                        val marker = writer.groupObjectKey(group)
+                        if (marker is ErrorBoundaryMarker) return marker
+                    }
+                    group = writer.parent(group)
+                }
+            }
+            if (!reader.closed && reader.size != 0) {
+                var group = reader.parent
+                while (group >= 0) {
+                    if (
+                        reader.groupKey(group) == errorBoundaryContentKey &&
+                            reader.hasObjectKey(group)
+                    ) {
+                        val marker = reader.groupObjectKey(group)
+                        if (marker is ErrorBoundaryMarker) return marker
+                    }
+                    group = reader.parent(group)
+                }
+            }
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
     override fun parentStackTrace(): List<ComposeStackTraceFrame> {
         val parentComposition = parentContext.composition as? CompositionImpl ?: return emptyList()
         val position =
@@ -2625,6 +2669,7 @@ internal class GapComposer(
             nodeIndex = 0
             var complete = false
             isComposing = true
+            caughtErrorBoundaryMarker = null
             observer?.onBeginComposition(composition)
             try {
                 startRoot()
@@ -2658,6 +2703,10 @@ internal class GapComposer(
                 endRoot()
                 complete = true
             } catch (e: Throwable) {
+                // Capture the nearest enclosing error boundary now, while the reader/writer are
+                // still positioned where the throw happened; abortRoot() in the finally below
+                // resets that position.
+                caughtErrorBoundaryMarker = findEnclosingErrorBoundaryMarker()
                 throw e.attachComposeStackTrace { currentStackTrace() }
             } finally {
                 observer?.onEndComposition(composition)
