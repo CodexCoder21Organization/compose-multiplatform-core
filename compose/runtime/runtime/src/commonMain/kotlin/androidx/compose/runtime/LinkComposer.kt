@@ -1419,6 +1419,11 @@ internal class LinkComposer(
         groupNodeCount = 0
         compositeKeyHashCode = EmptyCompositeKeyHashCode
         nodeExpected = false
+        // Reset the change list writer's staged node-move/remove bookkeeping, exactly as the gap
+        // buffer composer does. Without this, a pass aborted mid-composition leaves stale
+        // moveFrom/moveTo/moveCount staging behind, which corrupts the change list of the next
+        // composition pass (e.g. a MoveNode operation with index -1).
+        changeListWriter.resetTransientState()
         invalidateStack.clear()
         clearUpdatedNodeCounts()
     }
