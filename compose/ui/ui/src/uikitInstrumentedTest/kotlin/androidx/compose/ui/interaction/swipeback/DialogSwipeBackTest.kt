@@ -60,7 +60,7 @@ internal abstract class DialogSwipeBackTest(
     private val runUIKitInstrumentedTest: (UIKitInstrumentedTest.() -> Unit) -> Unit
 ) {
     @Test
-    fun edgeBackSwipeOverDialogDoesNotDispatchHorizontalDragToCompose() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeOverDialogDoesNotDispatchHorizontalDragToCompose() = runUIKitInstrumentedTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
@@ -111,7 +111,7 @@ internal abstract class DialogSwipeBackTest(
     }
 
     @Test
-    fun innerSwipeOverDialogDispatchesHorizontalDragWithoutStartingBack() = runUIKitInstrumentedTest {
+    fun testInnerSwipeOverDialogDispatchesHorizontalDragWithoutStartingBack() = runUIKitInstrumentedTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1

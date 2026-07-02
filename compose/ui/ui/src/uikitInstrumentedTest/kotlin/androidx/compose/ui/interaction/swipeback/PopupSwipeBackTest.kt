@@ -58,7 +58,7 @@ internal abstract class PopupSwipeBackTest(
     private val runUIKitInstrumentedTest: (UIKitInstrumentedTest.() -> Unit) -> Unit
 ) {
     @Test
-    fun edgeBackSwipeOverPopupDoesNotDispatchHorizontalDragToCompose() = runComposeContainerTest {
+    fun testEdgeBackSwipeOverPopupDoesNotDispatchHorizontalDragToCompose() = runComposeContainerTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
@@ -107,7 +107,7 @@ internal abstract class PopupSwipeBackTest(
     }
 
     @Test
-    fun innerSwipeOverPopupDispatchesHorizontalDragWithoutStartingBack() = runComposeContainerTest {
+    fun testInnerSwipeOverPopupDispatchesHorizontalDragWithoutStartingBack() = runComposeContainerTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1

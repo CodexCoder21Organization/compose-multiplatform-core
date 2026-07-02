@@ -67,7 +67,7 @@ internal abstract class SwipeBackTest(
     private val runUIKitInstrumentedTest: (UIKitInstrumentedTest.() -> Unit) -> Unit
 ) {
     @Test
-    fun edgeBackSwipeWorksInFullscreenContainer() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeInFullscreenContainer() = runUIKitInstrumentedTest {
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
@@ -104,7 +104,7 @@ internal abstract class SwipeBackTest(
     }
 
     @Test
-    fun edgeBackSwipeWorksInNonFullscreenContainer() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeInNonFullscreenContainer() = runUIKitInstrumentedTest {
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
@@ -145,7 +145,7 @@ internal abstract class SwipeBackTest(
     }
 
     @Test
-    fun edgeBackSwipeWorksInModalContainer() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeInModalContainer() = runUIKitInstrumentedTest {
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
@@ -193,7 +193,7 @@ internal abstract class SwipeBackTest(
     }
 
     @Test
-    fun rtlBackSwipeWorksFromRightEdge() = runUIKitInstrumentedTest {
+    fun testRtlBackSwipeFromRightEdge() = runUIKitInstrumentedTest {
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
@@ -229,7 +229,7 @@ internal abstract class SwipeBackTest(
     }
 
     @Test
-    fun edgeBackSwipeDoesNotDispatchHorizontalDragToCompose() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeDoesNotDispatchHorizontalDragToCompose() = runUIKitInstrumentedTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
@@ -274,7 +274,7 @@ internal abstract class SwipeBackTest(
     }
 
     @Test
-    fun innerSwipeDispatchesHorizontalDragWithoutStartingBack() = runUIKitInstrumentedTest {
+    fun testInnerSwipeDispatchesHorizontalDragWithoutStartingBack() = runUIKitInstrumentedTest {
         var dragDistance = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1

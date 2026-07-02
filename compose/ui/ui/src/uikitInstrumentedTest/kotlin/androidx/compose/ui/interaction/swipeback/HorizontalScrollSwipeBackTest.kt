@@ -62,7 +62,7 @@ internal abstract class HorizontalScrollSwipeBackTest(
     private val runUIKitInstrumentedTest: (UIKitInstrumentedTest.() -> Unit) -> Unit
 ) {
     @Test
-    fun edgeBackSwipeOverHorizontalScrollDoesNotScrollComposeContent() = runUIKitInstrumentedTest {
+    fun testEdgeBackSwipeOverHorizontalScrollDoesNotScrollComposeContent() = runUIKitInstrumentedTest {
         var scrollOffset = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
@@ -97,7 +97,7 @@ internal abstract class HorizontalScrollSwipeBackTest(
     }
 
     @Test
-    fun innerSwipeOverHorizontalScrollScrollsComposeContentWithoutStartingBack() = runUIKitInstrumentedTest {
+    fun testInnerSwipeOverHorizontalScrollScrollsComposeContentWithoutStartingBack() = runUIKitInstrumentedTest {
         var scrollOffset = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
