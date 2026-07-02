@@ -14,13 +14,17 @@
  * limitations under the License.
  */
 
-package androidx.compose.ui.interaction
+package androidx.compose.ui.interaction.swipeback
 
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -28,15 +32,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.UIKitInstrumentedTest
 import androidx.compose.ui.test.findNodeWithTag
 import androidx.compose.ui.test.findNodeWithTagOrNull
 import androidx.compose.ui.test.runUIKitInstrumentedTest
 import androidx.compose.ui.test.utils.hold
-import androidx.compose.ui.test.utils.leftCenter
-import androidx.compose.ui.test.utils.offsetBy
-import androidx.compose.ui.test.utils.rightCenter
 import androidx.compose.ui.test.utils.up
 import androidx.compose.ui.unit.dp
 import androidx.navigationevent.NavigationEventInfo
@@ -48,116 +50,134 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
-internal class SwipeBackInHostingViewTest : SwipeBackTest(
+internal class HorizontalScrollSwipeBackInHostingViewTest : HorizontalScrollSwipeBackTest(
     runUIKitInstrumentedTest = { runUIKitInstrumentedTest(useHostingView = true, it) }
 )
 
-internal class SwipeBackInHostingViewControllerTest : SwipeBackTest(
+internal class HorizontalScrollSwipeBackInHostingViewControllerTest : HorizontalScrollSwipeBackTest(
     runUIKitInstrumentedTest = { runUIKitInstrumentedTest(useHostingView = false, it) }
 )
 
-internal abstract class SwipeBackTest(
+internal abstract class HorizontalScrollSwipeBackTest(
     private val runUIKitInstrumentedTest: (UIKitInstrumentedTest.() -> Unit) -> Unit
 ) {
     @Test
-    fun edgeBackSwipeDoesNotDispatchHorizontalDragToCompose() = runUIKitInstrumentedTest {
-        var dragDistance = Float.NaN
+    fun edgeBackSwipeOverHorizontalScrollDoesNotScrollComposeContent() = runUIKitInstrumentedTest {
+        var scrollOffset = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
         setContent {
-            TestContent(
-                onDragDistanceChanged = { dragDistance = it },
+            HorizontalScrollBackGestureContent(
+                onScrollOffsetChanged = { scrollOffset = it },
                 onTransitionStateChanged = { transitionState = it },
                 onBackCompletedCountChanged = { backCompletedCount = it }
             )
         }
 
-        waitUntil("drag surface should be ready") {
-            findNodeWithTagOrNull(DRAG_SURFACE) != null &&
-                !dragDistance.isNaN() &&
-                backCompletedCount == 0
-        }
+        waitUntilReady { !scrollOffset.isNaN() && backCompletedCount == 0 }
 
         val backSwipe = swipeRightFromEdge().hold()
-
-        waitUntil("back swipe should be in progress") {
+        waitUntil("Back swipe over horizontal scroll content should start") {
             transitionState is InProgress
         }
 
         assertEquals(
             expected = 0f,
-            actual = dragDistance,
+            actual = scrollOffset,
             absoluteTolerance = 0.01f,
-            message = "Edge back swipe should not dispatch horizontal drag deltas to Compose"
-        )
-        assertEquals(
-            expected = 0,
-            actual = backCompletedCount,
-            message = "Back gesture should not complete before release"
+            message = "Edge back swipe should not scroll horizontal Compose content"
         )
 
         backSwipe.up()
 
-        waitUntil("back swipe should complete after release") {
+        waitUntil("Back swipe over horizontal scroll content should complete") {
             backCompletedCount == 1
         }
     }
 
     @Test
-    fun innerSwipeDispatchesHorizontalDragWithoutStartingBack() = runUIKitInstrumentedTest {
-        var dragDistance = Float.NaN
+    fun innerSwipeOverHorizontalScrollScrollsComposeContentWithoutStartingBack() = runUIKitInstrumentedTest {
+        var scrollOffset = Float.NaN
         var transitionState: NavigationEventTransitionState = NavigationEventTransitionState.Idle
         var backCompletedCount = -1
 
         setContent {
-            TestContent(
-                onDragDistanceChanged = { dragDistance = it },
+            HorizontalScrollBackGestureContent(
+                onScrollOffsetChanged = { scrollOffset = it },
                 onTransitionStateChanged = { transitionState = it },
                 onBackCompletedCountChanged = { backCompletedCount = it }
             )
         }
 
-        waitUntil("drag surface should be ready") {
-            findNodeWithTagOrNull(DRAG_SURFACE) != null &&
-                !dragDistance.isNaN() &&
-                backCompletedCount == 0
+        waitUntilReady { !scrollOffset.isNaN() && backCompletedCount == 0 }
+
+        findNodeWithTag(SCROLL_SURFACE).swipeLeft()
+
+        waitUntil("Inner swipe should scroll horizontal Compose content") {
+            scrollOffset > 0f
         }
 
-        findNodeWithTag(DRAG_SURFACE).swipe(
-            fromPosition = { leftCenter().offsetBy(dx = 16.dp) },
-            toPosition = { rightCenter().offsetBy(dx = (-16).dp) }
-        )
-
-        waitUntil("inner swipe should dispatch drag deltas to Compose") {
-            dragDistance > 0f
-        }
         assertFalse(
             transitionState is InProgress,
-            "Inner swipe should not start back navigation"
+            "Inner swipe over horizontal scroll content should not start back navigation"
         )
         assertEquals(
             expected = 0,
             actual = backCompletedCount,
-            message = "Inner swipe should not complete back navigation"
+            message = "Inner swipe over horizontal scroll content should not complete back navigation"
         )
     }
 }
 
 @Composable
-private fun TestContent(
-    onDragDistanceChanged: (Float) -> Unit,
+private fun HorizontalScrollBackGestureContent(
+    onScrollOffsetChanged: (Float) -> Unit,
     onTransitionStateChanged: (NavigationEventTransitionState) -> Unit,
     onBackCompletedCountChanged: (Int) -> Unit,
 ) {
-    var dragDistance by remember { mutableFloatStateOf(0f) }
+    var scrollOffset by remember { mutableFloatStateOf(0f) }
+
+    onScrollOffsetChanged(scrollOffset)
+
+    BackGestureHost(
+        onTransitionStateChanged = onTransitionStateChanged,
+        onBackCompletedCountChanged = onBackCompletedCountChanged
+    ) {
+        val scrollState = rememberScrollState()
+
+        scrollOffset = scrollState.value.toFloat()
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .testTag(SCROLL_SURFACE)
+                .horizontalScroll(scrollState)
+        ) {
+            repeat(10) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 200.dp, height = 160.dp)
+                        .background(if (it % 2 == 0) Color.Red else Color.Blue)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackGestureHost(
+    onTransitionStateChanged: (NavigationEventTransitionState) -> Unit,
+    onBackCompletedCountChanged: (Int) -> Unit,
+    content: @Composable () -> Unit,
+) {
     var backCompletedCount by remember { mutableIntStateOf(0) }
     val navigationEventState = rememberNavigationEventState<NavigationEventInfo>(
         currentInfo = NavigationEventInfo.None,
-        backInfo = listOf<NavigationEventInfo>(NavigationEventInfo.None)
+        backInfo = listOf(NavigationEventInfo.None)
     )
 
-    onDragDistanceChanged(dragDistance)
     onTransitionStateChanged(navigationEventState.transitionState)
     onBackCompletedCountChanged(backCompletedCount)
 
@@ -168,17 +188,17 @@ private fun TestContent(
         }
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag(DRAG_SURFACE)
-            .draggable(
-                state = rememberDraggableState { delta ->
-                    dragDistance += delta
-                },
-                orientation = Orientation.Horizontal,
-            )
-    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        content()
+    }
 }
 
-private const val DRAG_SURFACE = "dragSurface"
+private fun UIKitInstrumentedTest.waitUntilReady(
+    otherConditions: () -> Boolean,
+) {
+    waitUntil("$SCROLL_SURFACE should be ready") {
+        findNodeWithTagOrNull(SCROLL_SURFACE) != null && otherConditions()
+    }
+}
+
+private const val SCROLL_SURFACE = "scrollSurface"
