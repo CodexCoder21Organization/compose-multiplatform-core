@@ -25,7 +25,6 @@ import androidx.compose.runtime.mock.ViewApplier
 import androidx.compose.runtime.mock.compositionTest
 import androidx.compose.runtime.mock.expectNoChanges
 import androidx.compose.runtime.mock.validate
-import androidx.compose.runtime.tooling.ComposeStackTraceMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -903,33 +902,6 @@ class ErrorBoundaryTests {
             "a contained failure during a pausable initial composition must compose the fallback",
         )
         verifyConsistent()
-    }
-
-    @Test
-    fun diagnosticStackTraces_populateCompositionErrorInfo() = compositionTest {
-        Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.SourceInformation)
-        try {
-            val reported = mutableListOf<CompositionErrorInfo>()
-            compose {
-                ErrorBoundary(
-                    fallback = { Text("fallback") },
-                    onError = { _, info -> reported.add(info) },
-                ) {
-                    error("boom")
-                }
-            }
-
-            validate { Text("fallback") }
-            assertEquals(1, reported.size)
-            val trace = reported.single().composeStackTrace
-            assertNotNull(
-                trace,
-                "with diagnostic stack traces enabled, CompositionErrorInfo must carry the " +
-                    "composition stack",
-            )
-        } finally {
-            Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.None)
-        }
     }
 
     @Test

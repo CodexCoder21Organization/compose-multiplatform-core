@@ -45,15 +45,16 @@ androidXMultiplatform {
         ios()
         tvos()
         watchos()
-        js()
-        wasmJs()
     }
 
-    // The desktop target is fork-built from the in-tree runtime source (a partial redirect)
-    // instead of redirecting to the published androidx.compose.runtime artifact: this fork
-    // carries the error-boundary runtime change (see ../ERROR_BOUNDARIES.md), which has not
-    // landed upstream yet. Move desktop() back into the redirect block when it lands.
+    // The desktop, js and wasmJs targets are fork-built from the in-tree runtime source (a
+    // partial redirect) instead of redirecting to the published androidx.compose.runtime
+    // artifact: this fork carries the error-boundary runtime change (see
+    // ../ERROR_BOUNDARIES.md), which has not landed upstream yet. Move them back into the
+    // redirect block when it lands.
     desktop()
+    js()
+    wasmJs()
 
     defaultPlatform(PlatformIdentifier.ANDROID)
 
@@ -85,7 +86,28 @@ androidXMultiplatform {
             dependsOn(nonEmulatorJvmTest)
             dependsOn(nonAndroidTest)
         }
+
+        nonJvmMain {
+            dependsOn(nonAndroidMain)
+            dependencies {
+                implementation(libs.atomicFu)
+            }
+        }
+
+        webTest.dependsOn(nonEmulatorCommonTest)
+
+        wasmJsMain.dependencies {
+            implementation(libs.kotlinXw3c)
+        }
     }
+}
+
+// The runtime has no DOM dependency, so its web tests also run on Node — which is how this
+// fork's error-boundary changes are verified for js and wasmJs on hosts without a browser
+// (run :compose:runtime:runtime:jsNodeTest and :compose:runtime:runtime:wasmJsNodeTest).
+kotlin {
+    js { nodejs() }
+    wasmJs { nodejs() }
 }
 
 androidx {
