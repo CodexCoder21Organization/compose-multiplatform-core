@@ -580,6 +580,36 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun forwardedErrors_doNotTripTheAutoResetGuard() = compositionTest {
+        var handle: ErrorBoundaryHandle? = null
+        val dataRevision = mutableStateOf(0)
+        compose {
+            ErrorBoundary(
+                fallback = { Text("fallback") },
+                resetKeys = arrayOf(dataRevision.value),
+            ) {
+                handle = LocalErrorBoundary.current
+                Text("content ${dataRevision.value}")
+            }
+        }
+        validate { Text("content 0") }
+        val capturedHandle = assertNotNull(handle)
+
+        // Forward well over MaxConsecutiveAutoResetAttempts errors, each recovered by a data
+        // revision change: forwarded errors follow successful compositions, so they must never
+        // exhaust the composition re-attempt guard.
+        repeat(6) { round ->
+            capturedHandle.throwToBoundary(IllegalStateException("effect failure $round"))
+            advance()
+            validate { Text("fallback") }
+            dataRevision.value = round + 1
+            advance()
+            validate { Text("content ${round + 1}") }
+        }
+        verifyConsistent()
+    }
+
+    @Test
     fun localErrorBoundary_isNullWithoutBoundary() = compositionTest {
         var handle: ErrorBoundaryHandle? = ErrorBoundaryHandle { }
         compose {
@@ -766,6 +796,57 @@ class ErrorBoundaryTests {
         validate { Text("second") }
 
         expectNoChanges()
+        verifyConsistent()
+    }
+
+    @Test
+    fun boundaryInsertedDuringRecomposition_containsItsFirstCompositionFailure() = compositionTest {
+        val show = mutableStateOf(false)
+        var shouldFail = true
+        var capturedReset: (() -> Unit)? = null
+        compose {
+            Linear {
+                if (show.value) {
+                    ErrorBoundary(
+                        fallback = {
+                            capturedReset = ::reset
+                            Text("fallback")
+                        }
+                    ) {
+                        Text("content")
+                        if (shouldFail) error("boom on first appearance")
+                    }
+                }
+                Text("sibling")
+            }
+        }
+
+        validate { Linear { Text("sibling") } }
+
+        // The boundary is INSERTED by a recomposition and its content throws in that same
+        // pass: the containment must still schedule the fallback (the boundary's own scope
+        // belongs to the abandoned insert and cannot be used for rescheduling).
+        show.value = true
+        advance(ignorePendingWork = true)
+        advance(ignorePendingWork = true)
+
+        validate {
+            Linear {
+                Text("fallback")
+                Text("sibling")
+            }
+        }
+
+        // And the freshly-inserted boundary recovers normally.
+        shouldFail = false
+        assertNotNull(capturedReset, "fallback should have composed and captured reset")()
+        advance()
+        validate {
+            Linear {
+                Text("content")
+                Text("sibling")
+            }
+        }
         verifyConsistent()
     }
 
