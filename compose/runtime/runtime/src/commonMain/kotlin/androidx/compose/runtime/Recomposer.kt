@@ -1174,15 +1174,47 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                 }
             }
 
-        try {
-            composing(composition, null) { composition.composeContent(content) }
-        } catch (e: Throwable) {
-            if (newComposition) {
-                synchronized(stateLock) { unregisterCompositionLocked(composition) }
-            }
+        // Re-attempt loop for contained failures: a throw during initial composition abandons the
+        // whole pass; when an enclosing ErrorBoundary contains it, the pass is re-attempted with
+        // that boundary composing its fallback. Each iteration trips a strictly higher enclosing
+        // boundary (a boundary showing its fallback no longer contains — its fallback is outside
+        // its marker group), so the loop is bounded by the boundary nesting depth; the cap is a
+        // backstop against containment bugs.
+        var containedAttempts = 0
+        while (true) {
+            try {
+                val contained =
+                    composingOrContain(composition, null, invalidateScopeOnTrip = false) {
+                        composition.composeContent(content)
+                    }
+                if (!contained) break
+            } catch (e: Throwable) {
+                if (newComposition) {
+                    synchronized(stateLock) { unregisterCompositionLocked(composition) }
+                }
 
-            processCompositionError(e, composition, recoverable = true)
-            return
+                processCompositionError(e, composition, recoverable = true)
+                return
+            }
+            containedAttempts++
+            if (containedAttempts >= ErrorBoundaryHardContainmentCap) {
+                // Only reachable if containment fails to make progress (a containment bug — each
+                // contained failure is supposed to trip a strictly higher enclosing boundary).
+                // Surface it as a composition error rather than looping forever; routed outside
+                // the try so it cannot be re-contained or mislabeled by the catch above.
+                if (newComposition) {
+                    synchronized(stateLock) { unregisterCompositionLocked(composition) }
+                }
+                processCompositionError(
+                    ComposeRuntimeError(
+                        "Compose Runtime internal error. Composition failed $containedAttempts " +
+                            "times with every failure contained to an error boundary; giving up " +
+                            "on the re-attempt loop."
+                    ),
+                    composition,
+                )
+                return
+            }
         }
 
         synchronized(stateLock) {
@@ -1306,8 +1338,9 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
         )
             return null
 
-        return if (
-            composing(composition, modifiedValues) {
+        var hasChanges = false
+        val contained =
+            composingOrContain(composition, modifiedValues, invalidateScopeOnTrip = true) {
                 if (modifiedValues?.isNotEmpty() == true) {
                     // Record write performed by a previous composition as if they happened during
                     // composition.
@@ -1315,11 +1348,12 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                         modifiedValues.forEach { composition.recordWriteOf(it) }
                     }
                 }
-                composition.recompose()
+                hasChanges = composition.recompose()
             }
-        )
-            composition
-        else null
+        // A contained failure produced no changes to apply; the tripped boundary's scope was
+        // invalidated, which re-schedules this composition to compose the fallback.
+        if (contained) return null
+        return if (hasChanges) composition else null
     }
 
     @OptIn(ExperimentalComposeApi::class)
@@ -1460,6 +1494,87 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
         } finally {
             applyAndCheck(snapshot)
         }
+    }
+
+    /**
+     * Like [composing], but a composition failure that an enclosing [ErrorBoundary] can contain is
+     * contained instead of propagating: the failed pass's snapshot is disposed unapplied — rolling
+     * back the pass's state writes — and the boundary is tripped so that it composes its fallback
+     * on the re-attempted pass. Returns `true` when the failure was contained; `false` when
+     * [block] completed normally (and the snapshot was applied). Failures no boundary can contain
+     * propagate exactly as they do from [composing].
+     *
+     * The pass's write set is collected into a local set and merged into [modifiedValues] only
+     * when the pass completes (successfully or with an uncontained failure, matching [composing]):
+     * a contained pass's writes are rolled back, so publishing them to the frame's modified-values
+     * accumulator would schedule spurious recompositions of other compositions for values that
+     * never changed.
+     */
+    private inline fun composingOrContain(
+        composition: ControlledComposition,
+        modifiedValues: MutableScatterSet<Any>?,
+        invalidateScopeOnTrip: Boolean,
+        block: () -> Unit,
+    ): Boolean {
+        val passModifiedValues = if (modifiedValues != null) MutableScatterSet<Any>() else null
+        val snapshot =
+            Snapshot.takeMutableSnapshot(
+                readObserverOf(composition),
+                writeObserverOf(composition, passModifiedValues),
+            )
+        try {
+            snapshot.enter(block)
+        } catch (e: Throwable) {
+            val composer = (composition as? CompositionImpl)?.composer
+            val marker = composer?.takeCaughtErrorBoundaryMarker()
+            val contained =
+                marker != null &&
+                    try {
+                        marker.trip(e, composer.caughtErrorBoundaryDepth, invalidateScopeOnTrip)
+                    } catch (tripFailure: Throwable) {
+                        // Containment bookkeeping must never mask the original composition error.
+                        e.addSuppressed(tripFailure)
+                        false
+                    }
+            if (contained) {
+                // Dispose the failed pass's snapshot instead of applying it: state writes made
+                // during the failed pass are rolled back. The boundary records the error in
+                // composer-confined storage precisely so that it survives this disposal.
+                snapshot.dispose()
+                onErrorBoundaryContained(e)
+                return true
+            }
+            if (passModifiedValues != null && modifiedValues != null) {
+                passModifiedValues.forEach { modifiedValues.add(it) }
+            }
+            applyAndCheck(snapshot)
+            throw e
+        }
+        if (passModifiedValues != null && modifiedValues != null) {
+            passModifiedValues.forEach { modifiedValues.add(it) }
+        }
+        applyAndCheck(snapshot)
+        return false
+    }
+
+    /**
+     * A failure raised inside a nested composition (for example a subcomposition composed inline
+     * during its parent's pass) passes through [processCompositionError] before the enclosing
+     * composition's boundary contains it, leaving [errorState] pointing at a cause that is no
+     * longer fatal. Clear it so the recomposer does not go [State.Inactive] over a contained
+     * error.
+     */
+    private fun onErrorBoundaryContained(e: Throwable) {
+        val continuation =
+            synchronized(stateLock) {
+                if (errorState.value?.cause === e) {
+                    errorState.value = null
+                    deriveStateLocked()
+                } else {
+                    null
+                }
+            }
+        continuation?.resume(Unit)
     }
 
     private fun applyAndCheck(snapshot: MutableSnapshot) {

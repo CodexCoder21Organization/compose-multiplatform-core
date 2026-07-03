@@ -1419,6 +1419,11 @@ internal class LinkComposer(
         groupNodeCount = 0
         compositeKeyHashCode = EmptyCompositeKeyHashCode
         nodeExpected = false
+        // Reset the change list writer's staged node-move/remove bookkeeping, exactly as the gap
+        // buffer composer does. Without this, a pass aborted mid-composition leaves stale
+        // moveFrom/moveTo/moveCount staging behind, which corrupts the change list of the next
+        // composition pass (e.g. a MoveNode operation with index -1).
+        changeListWriter.resetTransientState()
         invalidateStack.clear()
         clearUpdatedNodeCounts()
     }
@@ -1442,6 +1447,69 @@ internal class LinkComposer(
             null
         }
 
+    /**
+     * Finds the [ErrorBoundaryMarker] of the nearest error boundary enclosing the current
+     * composition position, walking parent groups the same way [currentStackTrace] does: first up
+     * the insertion builder's chain (content being inserted by this pass), then up the reader's
+     * chain (committed groups). Also records the found marker's nesting depth — the number of
+     * marker groups enclosing it — into [caughtErrorBoundaryDepth]. Returns `null` when no
+     * enclosing boundary exists. Called while unwinding a composition failure, so it must never
+     * throw.
+     */
+    private fun findEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            var found: ErrorBoundaryMarker? = null
+            var markersAboveFound = 0
+            walkErrorBoundaryMarkers { marker ->
+                if (found == null) found = marker else markersAboveFound++
+            }
+            caughtErrorBoundaryDepth = markersAboveFound
+            return found
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
+    override fun errorBoundaryNestingDepth(): Int {
+        var depth = 0
+        try {
+            walkErrorBoundaryMarkers { depth++ }
+        } catch (_: Throwable) {
+            // Defensive: the depth is bookkeeping, never worth failing composition over.
+        }
+        return depth
+    }
+
+    /**
+     * Visits the [ErrorBoundaryMarker] of every error boundary marker group enclosing the current
+     * composition position, nearest first: up the insertion builder's chain, then up the reader's
+     * chain.
+     */
+    private inline fun walkErrorBoundaryMarkers(visit: (ErrorBoundaryMarker) -> Unit) {
+        val builder = builder
+        if (!builder.isClosed && !builder.isEmpty) {
+            builder.table.addressSpace.traverseGroupAndParents(builder.parentGroup) { group ->
+                if (builder.groupKey(group) == errorBoundaryContentKey) {
+                    val marker = builder.groupObjectKey(group)
+                    if (marker is ErrorBoundaryMarker) visit(marker)
+                }
+            }
+        }
+        val reader = reader
+        if (!reader.isClosed && !reader.isEmpty) {
+            reader.table.addressSpace.traverseGroupAndParents(reader.parentGroup) { group ->
+                if (
+                    reader.hasObjectKey(group) && reader.groupKey(group) == errorBoundaryContentKey
+                ) {
+                    val marker = reader.groupObjectKey(group)
+                    if (marker is ErrorBoundaryMarker) visit(marker)
+                }
+            }
+        }
+    }
+
     @InternalComposeApi
     private fun doCompose(
         invalidationsRequested: ScopeMap<RecomposeScopeImpl, Any>,
@@ -1456,6 +1524,7 @@ internal class LinkComposer(
             nodeIndex = 0
             var complete = false
             isComposing = true
+            caughtErrorBoundaryMarker = null
             observer?.onBeginComposition(composition)
             try {
                 startRoot()
@@ -1489,6 +1558,10 @@ internal class LinkComposer(
                 endRoot()
                 complete = true
             } catch (e: Throwable) {
+                // Capture the nearest enclosing error boundary now, while the reader/builder are
+                // still positioned where the throw happened; abortRoot() in the finally below
+                // resets that position.
+                caughtErrorBoundaryMarker = findEnclosingErrorBoundaryMarker()
                 throw e.attachComposeStackTrace { currentStackTrace() }
             } finally {
                 observer?.onEndComposition(composition)
