@@ -130,7 +130,9 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  *
  * [onError] is invoked once per contained error — including an error whose boundary immediately
  * recovered through [resetKeys] or a reset in the same pass, and including re-containment of the
- * same [Throwable] instance on a later failure.
+ * same [Throwable] instance on a later failure. When more than one error is accepted before the
+ * boundary's next commit (for example a contained throw and a concurrently forwarded error), the
+ * latest error is the one displayed and reported.
  *
  * Two sibling boundaries created from the same call site (for example, in a loop) share the same
  * composite key hash unless distinguished with [key]; wrap such boundaries in [key] to keep their
@@ -261,12 +263,19 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
         record.failedAttempts++
         record.error = error
         // Only a recomposition containment needs to schedule the boundary's fallback pass; the
-        // initial-composition retry loop re-attempts synchronously, and its boundary scope
-        // belongs to the abandoned pass — invalidating it can alias a committed slot-table
-        // location through the abandoned insert table's stale anchor and recompose an unrelated
-        // committed scope.
+        // initial-composition retry loop re-attempts synchronously. A scope created by the
+        // abandoned pass itself (a boundary INSERTED by the failed pass — initial composition,
+        // or a boundary newly revealed by a recomposition) must not be invalidated: its anchor
+        // points into the discarded insert table and can alias a committed slot-table location.
+        // For an abandoned-scope recomposition containment the composition is re-scheduled as a
+        // whole instead — its restored invalidations re-run the pass, which re-creates the
+        // boundary and consumes this record.
         if (invalidateScope) {
-            state.recomposeScope?.invalidate()
+            if (!state.abandoned) {
+                state.recomposeScope?.invalidate()
+            } else {
+                (composer.composition as? CompositionImpl)?.let { it.parent.invalidate(it) }
+            }
         }
         return true
     }
@@ -482,6 +491,12 @@ internal class ErrorBoundaryState : RememberObserver {
         recomposeScope?.invalidate()
     }
 
+    /**
+     * Set when the pass that created this state was abandoned: the state (and its recompose
+     * scope) belong to a discarded insert table and must not be used for scheduling.
+     */
+    @JvmField var abandoned: Boolean = false
+
     override fun onRemembered() {}
 
     override fun onForgotten() {
@@ -489,6 +504,7 @@ internal class ErrorBoundaryState : RememberObserver {
     }
 
     override fun onAbandoned() {
+        abandoned = true
         composer?.clearErrorBoundaryTripRecord(keyHash, depth)
     }
 }
