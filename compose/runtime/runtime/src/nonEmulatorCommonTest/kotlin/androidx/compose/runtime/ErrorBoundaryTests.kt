@@ -1010,6 +1010,69 @@ class ErrorBoundaryTests {
             "expected the hard-cap runtime error, but was: ${e.message}",
         )
     }
+
+    @Test
+    fun equivalentThrowableInstance_updatesFallbackScopeError() = compositionTest {
+        class EquivalentThrowable(message: String) : RuntimeException(message) {
+            override fun equals(other: Any?): Boolean = other is EquivalentThrowable
+
+            override fun hashCode(): Int = 7
+        }
+
+        val first = EquivalentThrowable("first")
+        val second = EquivalentThrowable("second")
+        var thrown = first
+        var capturedReset: (() -> Unit)? = null
+        compose {
+            ErrorBoundary(
+                fallback = {
+                    capturedReset = ::reset
+                    FallbackContent()
+                }
+            ) {
+                throw thrown
+            }
+        }
+
+        validate { Text("fallback: first") }
+
+        thrown = second
+        assertNotNull(capturedReset)()
+        advance()
+
+        validate { Text("fallback: second") }
+        verifyConsistent()
+    }
+
+    @Test
+    fun resetKeysInPlaceElementChange_reattemptsContent() = compositionTest {
+        var shouldFail = true
+        val resetKeys = arrayOf<Any?>(0)
+        val revision = mutableStateOf(0)
+        compose {
+            val observedRevision = revision.value
+            resetKeys[0] = observedRevision
+            ErrorBoundary(
+                fallback = { FallbackContent() },
+                onError = { _, _ -> observedRevision.hashCode() },
+                resetKeys = resetKeys,
+            ) {
+                Text("content")
+                if (shouldFail) error("boom")
+            }
+        }
+
+        validate { FallbackText(IllegalStateException("boom")) }
+
+        // The resetKeys contract is element-wise content equality, not array identity. Reusing a
+        // stable array instance is therefore still a key change when one of its elements changes.
+        shouldFail = false
+        revision.value = 1
+        advance()
+
+        validate { Text("content") }
+        verifyConsistent()
+    }
 }
 // Note: subcomposition tests reuse the internal TestSubcomposition helper defined alongside
 // CompositionTests in this package.
