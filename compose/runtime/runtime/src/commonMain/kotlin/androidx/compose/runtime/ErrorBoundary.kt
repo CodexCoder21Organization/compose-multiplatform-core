@@ -23,8 +23,8 @@ import kotlin.jvm.JvmField
 /**
  * Receiver scope of an [ErrorBoundary]'s `fallback` content.
  *
- * Exposes the [error] that caused the boundary to render its fallback and a [reset] operation
- * that discards the error state and re-attempts the boundary's protected content.
+ * Exposes the [error] that caused the boundary to render its fallback and a [reset] operation that
+ * discards the error state and re-attempts the boundary's protected content.
  */
 @ExperimentalComposeRuntimeApi
 public interface ErrorBoundaryScope {
@@ -96,37 +96,37 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * pass's mutable snapshot and its node tree changes are discarded unapplied), attributes the error
  * to the nearest enclosing boundary, and re-attempts composition with this boundary rendering
  * [fallback] in place of [content]. Values remembered in the abandoned pass receive their normal
- * abandonment callbacks and any previously committed content that is replaced by [fallback] is
- * torn down with its normal `onForgotten` / `DisposableEffect` teardown.
+ * abandonment callbacks and any previously committed content that is replaced by [fallback] is torn
+ * down with its normal `onForgotten` / `DisposableEffect` teardown.
  *
  * The two content parameters mirror the split React established for its error boundaries:
- * [fallback] is the pure render-phase branch composed in place of the failed content, and
- * [onError] is a commit-phase side effect intended for logging and reporting, invoked with the
- * contained error and a [CompositionErrorInfo].
+ * [fallback] is the pure render-phase branch composed in place of the failed content, and [onError]
+ * is a commit-phase side effect intended for logging and reporting, invoked with the contained
+ * error and a [CompositionErrorInfo].
  *
  * Phase coverage is deliberate and explicit:
  * - **Composition and recomposition** errors are contained by the boundary.
- * - **Event handlers, [LaunchedEffect] and other coroutine bodies** never pass through
- *   composition; forward errors from them explicitly through [LocalErrorBoundary]'s
+ * - **Event handlers, [LaunchedEffect] and other coroutine bodies** never pass through composition;
+ *   forward errors from them explicitly through [LocalErrorBoundary]'s
  *   [ErrorBoundaryHandle.throwToBoundary].
  * - **Layout and draw** failures happen in a separate subsystem and are not contained by this
  *   boundary.
  *
- * An error thrown while composing [fallback] itself is not contained by this boundary; it
- * escalates to the next enclosing [ErrorBoundary], if any, exactly like React's fallback
- * semantics. For the same reason, [LocalErrorBoundary] read from inside [fallback] resolves to
- * the next *enclosing* boundary (or `null`), never to this boundary.
+ * An error thrown while composing [fallback] itself is not contained by this boundary; it escalates
+ * to the next enclosing [ErrorBoundary], if any, exactly like React's fallback semantics. For the
+ * same reason, [LocalErrorBoundary] read from inside [fallback] resolves to the next *enclosing*
+ * boundary (or `null`), never to this boundary.
  *
  * Recovery re-attempts [content], it does not merely re-render the fallback: an explicit
  * [ErrorBoundaryScope.reset] and a change to any element of [resetKeys] both discard the error
- * state and re-run [content] on the next composition — never re-entrantly inside the failing
- * pass. A bounded re-attempt guard keeps content that keeps throwing from spinning: automatic
- * re-attempts (from [resetKeys] changes or composition-time resets) are limited while the boundary
- * keeps failing with no successful composition in between, after which the boundary holds the
- * fallback and reports the loop through [onError]; a reset invoked outside composition (a user
- * gesture) is always honored. Errors forwarded through [ErrorBoundaryHandle.throwToBoundary] do
- * not count toward this guard: they are raised by work that ran after a successful composition,
- * so their recurrence is bounded by their own triggers.
+ * state and re-run [content] on the next composition — never re-entrantly inside the failing pass.
+ * A bounded re-attempt guard keeps content that keeps throwing from spinning: automatic re-attempts
+ * (from [resetKeys] changes or composition-time resets) are limited while the boundary keeps
+ * failing with no successful composition in between, after which the boundary holds the fallback
+ * and reports the loop through [onError]; a reset invoked outside composition (a user gesture) is
+ * always honored. Errors forwarded through [ErrorBoundaryHandle.throwToBoundary] do not count
+ * toward this guard: they are raised by work that ran after a successful composition, so their
+ * recurrence is bounded by their own triggers.
  *
  * [onError] is invoked once per contained error — including an error whose boundary immediately
  * recovered through [resetKeys] or a reset in the same pass, and including re-containment of the
@@ -138,15 +138,14 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * composite key hash unless distinguished with [key]; wrap such boundaries in [key] to keep their
  * contained error states distinct.
  *
- * Known v1 limitations: content relocated with [movableContentOf] that fails *while being moved*
- * (or whose boundary tripped in one composition and was moved to another before recovering) may
- * miss containment for that pass and be re-attempted in the destination — safe, but the original
- * pass's error attribution is lost. When live edit / hot reload is enabled, an error raised in a
- * subcomposition without its own boundary is captured by the hot-reload recovery before any
- * boundary in the parent composition can contain it.
+ * Known v1 limitations: a boundary inserted inside newly-created [movableContentOf] content cannot
+ * contain a failure raised during that deferred insertion pass; wrap the movable content invocation
+ * in an already-committed enclosing boundary to contain that failure. When live edit / hot reload
+ * is enabled, an error raised in a subcomposition without its own boundary is captured by the
+ * hot-reload recovery before any boundary in the parent composition can contain it.
  *
- * @param fallback Composed in place of [content] while the boundary contains an error. Receives
- *   an [ErrorBoundaryScope] exposing the contained error and a reset operation.
+ * @param fallback Composed in place of [content] while the boundary contains an error. Receives an
+ *   [ErrorBoundaryScope] exposing the contained error and a reset operation.
  * @param onError Invoked after the boundary contains an error, with the error and a
  *   [CompositionErrorInfo]. Intended for logging; invoked as a commit-phase side effect.
  * @param resetKeys When any element changes (by [Array.contentEquals]) while the boundary is
@@ -215,17 +214,16 @@ private const val MaxConsecutiveAutoResetAttempts = 3
 
 /**
  * Two distinct backstops share this bound:
- * - [Recomposer]'s initial-composition re-attempt loop gives up after this many contained
- *   failures in a single `composeInitial` call. Each contained failure trips a strictly higher
- *   enclosing boundary, so reaching the cap indicates a containment bug, and the failure is
- *   surfaced as a runtime error.
+ * - [Recomposer]'s initial-composition re-attempt loop gives up after this many contained failures
+ *   in a single `composeInitial` call. Each contained failure trips a strictly higher enclosing
+ *   boundary, so reaching the cap indicates a containment bug, and the failure is surfaced as a
+ *   runtime error.
  * - A single boundary position stops containing after this many recorded failures with no
  *   successful composition and no out-of-composition reset in between (see
  *   [ErrorBoundaryMarker.trip]) — only reachable if the auto-reset guard is bypassed
  *   pathologically, in which case the error propagates as if the boundary were absent.
  */
 internal const val ErrorBoundaryHardContainmentCap = 64
-
 
 /**
  * The identity the runtime uses to attribute a contained error to a boundary. Stored as the object
@@ -286,11 +284,10 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
 
 /**
  * The per-position record of contained errors, kept on the composer keyed by the boundary's
- * composite key hash plus its marker-nesting [depth]. Keeping it on the composer rather than in
- * the boundary's remembered state is what makes containment of *initial* composition failures
- * work: the failed pass's remembered state is abandoned, but this record survives to be consumed
- * by the fresh boundary state of the re-attempted pass. Records sharing a hash chain through
- * [next].
+ * composite key hash plus its marker-nesting [depth]. Keeping it on the composer rather than in the
+ * boundary's remembered state is what makes containment of *initial* composition failures work: the
+ * failed pass's remembered state is abandoned, but this record survives to be consumed by the fresh
+ * boundary state of the re-attempted pass. Records sharing a hash chain through [next].
  */
 internal class ErrorBoundaryTripRecord(@JvmField val depth: Int) {
     @JvmField var error: Throwable? = null
@@ -331,17 +328,17 @@ internal class ErrorBoundaryState : RememberObserver {
     @JvmField var error: Throwable? = null
 
     /**
-     * Consecutive contained composition failures with no successful content composition in
-     * between. Mirrors the composer-kept [ErrorBoundaryTripRecord.failedAttempts]. Errors
-     * forwarded through [ErrorBoundaryHandle.throwToBoundary] do NOT count: they are raised by
-     * work that ran after a successful composition, so their recurrence is bounded by their own
-     * triggers rather than by the composition re-attempt guard.
+     * Consecutive contained composition failures with no successful content composition in between.
+     * Mirrors the composer-kept [ErrorBoundaryTripRecord.failedAttempts]. Errors forwarded through
+     * [ErrorBoundaryHandle.throwToBoundary] do NOT count: they are raised by work that ran after a
+     * successful composition, so their recurrence is bounded by their own triggers rather than by
+     * the composition re-attempt guard.
      */
     @JvmField var failedAttempts: Int = 0
 
     /**
-     * Monotonic count of errors this boundary has accepted (contained trips and forwarded
-     * errors). Together with [notifiedGeneration] this makes `onError` delivery per-containment:
+     * Monotonic count of errors this boundary has accepted (contained trips and forwarded errors).
+     * Together with [notifiedGeneration] this makes `onError` delivery per-containment:
      * re-containing the *same* [Throwable] instance is a new failure and is reported again.
      */
     @JvmField var errorGeneration: Int = 0
@@ -478,10 +475,7 @@ internal class ErrorBoundaryState : RememberObserver {
         val loop = pendingLoopNotification
         if (loop != null) {
             pendingLoopNotification = null
-            onError(
-                ErrorBoundaryResetLoopException(loop),
-                CompositionErrorInfo(null),
-            )
+            onError(ErrorBoundaryResetLoopException(loop), CompositionErrorInfo(null))
         }
     }
 
@@ -495,8 +489,8 @@ internal class ErrorBoundaryState : RememberObserver {
     }
 
     /**
-     * Set when the pass that created this state was abandoned: the state (and its recompose
-     * scope) belong to a discarded insert table and must not be used for scheduling.
+     * Set when the pass that created this state was abandoned: the state (and its recompose scope)
+     * belong to a discarded insert table and must not be used for scheduling.
      */
     @JvmField var abandoned: Boolean = false
 
@@ -544,6 +538,6 @@ internal class ErrorBoundaryResetLoopException(cause: Throwable) :
     )
 
 private fun composeStackTraceOf(error: Throwable): String? =
-    error.suppressedExceptions.firstOrNull { it is DiagnosticComposeException }?.let {
-        it.stackTraceToString()
-    }
+    error.suppressedExceptions
+        .firstOrNull { it is DiagnosticComposeException }
+        ?.let { it.stackTraceToString() }

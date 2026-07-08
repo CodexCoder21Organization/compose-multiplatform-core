@@ -2267,6 +2267,7 @@ internal class GapComposer(
                 providersInvalid = savedProvidersInvalid
             }
         } catch (e: Throwable) {
+            caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
             throw e.attachComposeStackTrace { currentStackTrace() }
         } finally {
             // Restore the state back to what is expected by the caller.
@@ -2539,6 +2540,22 @@ internal class GapComposer(
         return null
     }
 
+    private fun findCommittedEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            var found: ErrorBoundaryMarker? = null
+            var markersAboveFound = 0
+            walkCommittedErrorBoundaryMarkers { marker ->
+                if (found == null) found = marker else markersAboveFound++
+            }
+            caughtErrorBoundaryDepth = markersAboveFound
+            return found
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
     override fun errorBoundaryNestingDepth(): Int {
         var depth = 0
         try {
@@ -2570,6 +2587,10 @@ internal class GapComposer(
                 group = writer.parent(group)
             }
         }
+        walkCommittedErrorBoundaryMarkers(visit)
+    }
+
+    private inline fun walkCommittedErrorBoundaryMarkers(visit: (ErrorBoundaryMarker) -> Unit) {
         if (!reader.closed && reader.size != 0) {
             var group = reader.parent
             while (group >= 0) {

@@ -174,14 +174,12 @@ how much work a contained failure costs, not the observable semantics.
   during layout) is contained only by boundaries inside that subcomposition in v1. The
   recomposer's `errorState` is cleared when a nested failure ends up contained, so a
   contained error never wedges the recomposer.
-- **Known containment misses (documented, safe).** Movable content's *deferred insertion*
-  pass (`performInitialMovableContentInserts` / `performInsertValues`) does not attempt
-  containment — a boundary inside `movableContentOf` content does not contain a failure
-  raised during that deferred insert; committed movable-content boundaries contain
-  recomposition failures normally, and a tripped boundary's error state moves with the
-  content. Under live edit / hot reload, a subcomposition failure with no boundary inside
-  the subcomposition is captured by hot-reload recovery before a parent boundary can
-  contain it.
+- **Known containment misses (documented, safe).** A boundary inserted inside
+  newly-created `movableContentOf` content cannot contain a failure raised during that
+  deferred insertion pass; wrap the movable content invocation in an already-committed
+  enclosing boundary to contain that failure. Under live edit / hot reload, a
+  subcomposition failure with no boundary inside the subcomposition is captured by
+  hot-reload recovery before a parent boundary can contain it.
 
 ## Relationship to Observables / RemoteObservableBoundary
 
@@ -231,4 +229,5 @@ subcompositions (initial + recomposition, recomposer stays healthy), boundaries 
 `movableContentOf` (tripped state moves with the content and recovers), user `key(208)`
 groups inside protected content not colliding with the boundary marker key, pausable
 composition containment, diagnostic composition stack traces in `CompositionErrorInfo`,
-re-containment after recovery, and transparency of a healthy boundary.
+re-containment after recovery, deferred movable-content insertion failures under an
+already-enclosing boundary, and transparency of a healthy boundary.

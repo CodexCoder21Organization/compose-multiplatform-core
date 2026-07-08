@@ -16,7 +16,6 @@
 
 package androidx.compose.runtime
 
-import androidx.compose.runtime.mock.EmptyApplier
 import androidx.compose.runtime.mock.Linear
 import androidx.compose.runtime.mock.MockViewValidator
 import androidx.compose.runtime.mock.Text
@@ -33,7 +32,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalComposeRuntimeApi::class, InternalComposeApi::class)
 @Suppress("UNUSED_EXPRESSION")
@@ -109,9 +107,7 @@ class ErrorBoundaryTests {
         val fallbackRevision = mutableStateOf(0)
         compose {
             ErrorBoundary(
-                fallback = {
-                    Text("fallback ${fallbackRevision.value}")
-                },
+                fallback = { Text("fallback ${fallbackRevision.value}") },
                 onError = { error, info -> reported.add(error to info) },
             ) {
                 Text("content")
@@ -428,11 +424,7 @@ class ErrorBoundaryTests {
         compose {
             ErrorBoundary(fallback = { Text("outer fallback: ${error.message}") }) {
                 Text("outer content")
-                ErrorBoundary(
-                    fallback = { error("fallback is broken too") }
-                ) {
-                    error("boom")
-                }
+                ErrorBoundary(fallback = { error("fallback is broken too") }) { error("boom") }
             }
         }
 
@@ -691,7 +683,7 @@ class ErrorBoundaryTests {
 
     @Test
     fun localErrorBoundary_isNullWithoutBoundary() = compositionTest {
-        var handle: ErrorBoundaryHandle? = ErrorBoundaryHandle { }
+        var handle: ErrorBoundaryHandle? = ErrorBoundaryHandle {}
         compose {
             handle = LocalErrorBoundary.current
             Text("content")
@@ -911,9 +903,7 @@ class ErrorBoundaryTests {
                         if (failFirst.value) error("boom")
                     }
                 }
-                key(2) {
-                    ErrorBoundary(fallback = { Text("fallback 2") }) { Text("content 2") }
-                }
+                key(2) { ErrorBoundary(fallback = { Text("fallback 2") }) { Text("content 2") } }
             }
         }
 
@@ -991,9 +981,7 @@ class ErrorBoundaryTests {
     @Test
     fun healthyBoundary_composesContentTransparently() = compositionTest {
         val text = mutableStateOf("first")
-        compose {
-            ErrorBoundary(fallback = { Text("fallback") }) { Text(text.value) }
-        }
+        compose { ErrorBoundary(fallback = { Text("fallback") }) { Text(text.value) } }
 
         validate { Text("first") }
 
@@ -1062,11 +1050,7 @@ class ErrorBoundaryTests {
         compose {
             Text("parent")
             TestSubcomposition {
-                ErrorBoundary(
-                    fallback = {
-                        fallbackComposed = true
-                    }
-                ) {
+                ErrorBoundary(fallback = { fallbackComposed = true }) {
                     error("boom in subcomposition")
                 }
             }
@@ -1090,11 +1074,7 @@ class ErrorBoundaryTests {
             compose {
                 Text(parentText.value)
                 TestSubcomposition {
-                    ErrorBoundary(
-                        fallback = {
-                            fallbackComposed = true
-                        }
-                    ) {
+                    ErrorBoundary(fallback = { fallbackComposed = true }) {
                         if (fail.value) error("boom in subcomposition")
                     }
                 }
@@ -1158,6 +1138,22 @@ class ErrorBoundaryTests {
         assertNotNull(capturedReset)()
         advance()
         validate { Linear { Text("content") } }
+        verifyConsistent()
+    }
+
+    @Test
+    fun movableContentChild_insertedUnderBoundary_isContained() = compositionTest {
+        compose {
+            val child = remember {
+                movableContentOf {
+                    Text("movable before throw")
+                    error("boom in movable child")
+                }
+            }
+            ErrorBoundary(fallback = { FallbackContent() }) { child() }
+        }
+
+        validate { FallbackText(IllegalStateException("boom in movable child")) }
         verifyConsistent()
     }
 
