@@ -342,8 +342,9 @@ internal class ErrorBoundaryState : RememberObserver {
 
     /**
      * Monotonic count of errors this boundary has accepted (contained trips and forwarded errors).
-     * Together with [notifiedGeneration] this makes `onError` delivery per-containment:
-     * re-containing the *same* [Throwable] instance is a new failure and is reported again.
+     * This drives the fallback scope identity via `remember(state.errorGeneration)`; `onError`
+     * delivery itself is queued in [pendingErrorNotifications] so re-containing the *same*
+     * [Throwable] instance is a new failure and is reported again.
      */
     @JvmField var errorGeneration: Int = 0
 

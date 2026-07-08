@@ -2211,6 +2211,9 @@ internal class GapComposer(
         )
     }
 
+    private var movableContentErrorBoundaryMarker: ErrorBoundaryMarker? = null
+    private var movableContentErrorBoundaryDepth: Int = 0
+
     @OptIn(ExperimentalComposeApi::class)
     private fun invokeMovableContentLambda(
         content: MovableContent<Any?>,
@@ -2227,9 +2230,18 @@ internal class GapComposer(
         // All movable content has a composite hash value rooted at the content itself so the hash
         // value doesn't change as the content moves in the tree.
         val savedCompositeKeyHash = compositeKeyHashCode
+        val savedMovableContentErrorBoundaryMarker = movableContentErrorBoundaryMarker
+        val savedMovableContentErrorBoundaryDepth = movableContentErrorBoundaryDepth
+        val activeErrorBoundaryMarker =
+            errorBoundaryMarker ?: savedMovableContentErrorBoundaryMarker
+        val activeErrorBoundaryDepth =
+            if (errorBoundaryMarker != null) errorBoundaryDepth
+            else savedMovableContentErrorBoundaryDepth
 
         try {
             compositeKeyHashCode = CompositeKeyHashCode(movableContentKey)
+            movableContentErrorBoundaryMarker = activeErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = activeErrorBoundaryDepth
 
             if (inserting) writer.markGroup()
 
@@ -2250,8 +2262,11 @@ internal class GapComposer(
 
                 // Create an anchor to the movable group
                 val anchor = writer.anchor(writer.parent(writer.parent))
-                val marker = findCommittedEnclosingErrorBoundaryMarker()
-                val markerDepth = caughtErrorBoundaryDepth
+                val committedMarker = findCommittedEnclosingErrorBoundaryMarker()
+                val marker = committedMarker ?: activeErrorBoundaryMarker
+                val markerDepth =
+                    if (committedMarker != null) caughtErrorBoundaryDepth
+                    else activeErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2285,6 +2300,8 @@ internal class GapComposer(
             endGroup()
             providerCache = null
             compositeKeyHashCode = savedCompositeKeyHash
+            movableContentErrorBoundaryMarker = savedMovableContentErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = savedMovableContentErrorBoundaryDepth
             endMovableGroup()
         }
     }

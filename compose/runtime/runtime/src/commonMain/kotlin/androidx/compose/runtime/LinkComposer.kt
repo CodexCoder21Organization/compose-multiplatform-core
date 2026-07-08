@@ -2065,6 +2065,9 @@ internal class LinkComposer(
         }
     }
 
+    private var movableContentErrorBoundaryMarker: ErrorBoundaryMarker? = null
+    private var movableContentErrorBoundaryDepth: Int = 0
+
     @OptIn(ExperimentalComposeApi::class)
     @InternalComposeApi
     private fun invokeMovableContentLambda(
@@ -2082,9 +2085,18 @@ internal class LinkComposer(
         // All movable content has a composite hash value rooted at the content itself so the hash
         // value doesn't change as the content moves in the tree.
         val savedCompositeKeyHash = compositeKeyHashCode
+        val savedMovableContentErrorBoundaryMarker = movableContentErrorBoundaryMarker
+        val savedMovableContentErrorBoundaryDepth = movableContentErrorBoundaryDepth
+        val activeErrorBoundaryMarker =
+            errorBoundaryMarker ?: savedMovableContentErrorBoundaryMarker
+        val activeErrorBoundaryDepth =
+            if (errorBoundaryMarker != null) errorBoundaryDepth
+            else savedMovableContentErrorBoundaryDepth
 
         try {
             compositeKeyHashCode = CompositeKeyHashCode(movableContentKey)
+            movableContentErrorBoundaryMarker = activeErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = activeErrorBoundaryDepth
 
             if (inserting) builder.addFlags(flags = IsMovableContentFlag)
 
@@ -2105,8 +2117,11 @@ internal class LinkComposer(
 
                 val address = builder.parent(builder.parentGroup)
                 val anchor = builder.table.addressSpace.anchorOfAddress(address)
-                val marker = findCommittedEnclosingErrorBoundaryMarker()
-                val markerDepth = caughtErrorBoundaryDepth
+                val committedMarker = findCommittedEnclosingErrorBoundaryMarker()
+                val marker = committedMarker ?: activeErrorBoundaryMarker
+                val markerDepth =
+                    if (committedMarker != null) caughtErrorBoundaryDepth
+                    else activeErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2146,6 +2161,8 @@ internal class LinkComposer(
             endGroup()
             providerCache = null
             compositeKeyHashCode = savedCompositeKeyHash
+            movableContentErrorBoundaryMarker = savedMovableContentErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = savedMovableContentErrorBoundaryDepth
             endMovableGroup()
         }
     }

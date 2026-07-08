@@ -1503,6 +1503,55 @@ class ErrorBoundaryTests {
         }
 
     @Test
+    fun nestedMovableContent_containedAfterSuccessfulInsert_keepsSibling() = compositionTest {
+        val move = mutableStateOf(false)
+        val reported = mutableListOf<String>()
+
+        val successfulChild = movableContentOf { Text("successful movable") }
+        val nestedThrowingChild = movableContentOf {
+            Text("nested movable before")
+            if (move.value) error("boom in nested movable")
+        }
+        val throwingHost = movableContentOf {
+            Text("throwing host")
+            nestedThrowingChild()
+        }
+
+        compose {
+            if (move.value) {
+                successfulChild()
+            } else {
+                Text("successful waiting")
+            }
+            ErrorBoundary(
+                fallback = { FallbackContent() },
+                onError = { error, _ -> reported += error.message ?: "" },
+            ) {
+                if (move.value) {
+                    throwingHost()
+                } else {
+                    Text("throwing waiting")
+                }
+            }
+        }
+
+        validate {
+            Text("successful waiting")
+            Text("throwing waiting")
+        }
+
+        move.value = true
+        advance()
+
+        validate {
+            Text("successful movable")
+            FallbackText(IllegalStateException("boom in nested movable"))
+        }
+        assertEquals(listOf("boom in nested movable"), reported)
+        verifyConsistent()
+    }
+
+    @Test
     fun pausableComposition_initialContainedFailure_composesFallback() = compositionTest {
         val pausedRoot = View().apply { name = "pausedRoot" }
         compose {

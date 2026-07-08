@@ -710,6 +710,7 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                                             )
                                             insertResult.containedCompositions.fastForEach {
                                                 toApply.remove(it)
+                                                toLateApply.remove(it)
                                                 it.invalidateAll()
                                                 invalidate(it)
                                             }
