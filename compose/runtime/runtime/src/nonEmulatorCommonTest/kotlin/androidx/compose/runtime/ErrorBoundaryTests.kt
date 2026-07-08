@@ -586,6 +586,68 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun throwToBoundary_afterBoundaryLeavesComposition_isNoOp() = compositionTest {
+        val showBoundary = mutableStateOf(true)
+        var handle: ErrorBoundaryHandle? = null
+        compose {
+            Linear {
+                if (showBoundary.value) {
+                    ErrorBoundary(fallback = { FallbackContent() }) {
+                        handle = LocalErrorBoundary.current
+                        Text("content")
+                    }
+                }
+                Text("sibling")
+            }
+        }
+
+        val capturedHandle = assertNotNull(handle, "content should see an enclosing boundary")
+        showBoundary.value = false
+        advance()
+        validate { Linear { Text("sibling") } }
+
+        capturedHandle.throwToBoundary(IllegalStateException("late event"))
+        advance()
+
+        validate { Linear { Text("sibling") } }
+        verifyConsistent()
+    }
+
+    @Test
+    fun throwToBoundary_duringFailedComposition_reportsBothErrorsAndShowsLatest() =
+        compositionTest {
+            val fail = mutableStateOf(false)
+            val reported = mutableListOf<String>()
+            var handle: ErrorBoundaryHandle? = null
+            compose {
+                ErrorBoundary(
+                    fallback = { FallbackContent() },
+                    onError = { error, _ -> reported.add(error.message ?: "") },
+                ) {
+                    handle = LocalErrorBoundary.current
+                    Text("content")
+                    if (fail.value) {
+                        assertNotNull(handle)
+                            .throwToBoundary(IllegalStateException("forwarded during failed pass"))
+                        error("composition failure")
+                    }
+                }
+            }
+
+            fail.value = true
+            advance()
+
+            validate { FallbackText(IllegalStateException("forwarded during failed pass")) }
+            assertEquals(
+                listOf("composition failure", "forwarded during failed pass"),
+                reported,
+                "the boundary should report every accepted error exactly once while showing the " +
+                    "latest accepted error",
+            )
+            verifyConsistent()
+        }
+
+    @Test
     fun forwardedErrors_doNotTripTheAutoResetGuard() = compositionTest {
         var handle: ErrorBoundaryHandle? = null
         val dataRevision = mutableStateOf(0)

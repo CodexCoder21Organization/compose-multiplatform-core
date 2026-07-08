@@ -129,10 +129,11 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * recurrence is bounded by their own triggers.
  *
  * [onError] is invoked once per contained error — including an error whose boundary immediately
- * recovered through [resetKeys] or a reset in the same pass, and including re-containment of the
- * same [Throwable] instance on a later failure. When more than one error is accepted before the
- * boundary's next commit (for example a contained throw and a concurrently forwarded error), the
- * latest error is the one displayed and reported.
+ * recovered through [resetKeys] or a reset in the same pass, including re-containment of the same
+ * [Throwable] instance on a later failure, and including multiple errors accepted before the
+ * boundary's next commit. When more than one error is accepted before the boundary commits (for
+ * example a contained throw and a concurrently forwarded error), the latest error is the one
+ * displayed by [fallback].
  *
  * Same-call-site sibling boundaries created by ordinary repeated composition receive distinct
  * effective composite key hashes and keep their contained error states independent. As with other
@@ -343,13 +344,9 @@ internal class ErrorBoundaryState : RememberObserver {
      */
     @JvmField var errorGeneration: Int = 0
 
-    /** The generation up to which errors have been delivered to `onError`. */
-    @JvmField var notifiedGeneration: Int = 0
-
-    /** The error not yet reported through `onError`, if any. */
-    @JvmField var pendingErrorNotification: Throwable? = null
-
-    @JvmField var pendingErrorInfo: CompositionErrorInfo? = null
+    /** Accepted errors not yet reported through `onError`, in acceptance order. */
+    @JvmField
+    val pendingErrorNotifications: MutableList<ErrorBoundaryNotification> = mutableListOf()
 
     /** Set when the auto-reset guard suppressed a re-attempt; reported through `onError`. */
     @JvmField var pendingLoopNotification: Throwable? = null
@@ -373,13 +370,13 @@ internal class ErrorBoundaryState : RememberObserver {
         get() = failedAttempts > 0 || pendingLoopNotification != null
 
     val hasPendingNotifications: Boolean
-        get() = errorGeneration > notifiedGeneration || pendingLoopNotification != null
+        get() = pendingErrorNotifications.isNotEmpty() || pendingLoopNotification != null
 
     private fun acceptError(accepted: Throwable) {
         error = accepted
         errorGeneration++
-        pendingErrorNotification = accepted
-        pendingErrorInfo = CompositionErrorInfo(composeStackTraceOf(accepted))
+        pendingErrorNotifications +=
+            ErrorBoundaryNotification(accepted, CompositionErrorInfo(composeStackTraceOf(accepted)))
     }
 
     /**
@@ -462,14 +459,11 @@ internal class ErrorBoundaryState : RememberObserver {
 
     /** Delivers not-yet-reported errors to `onError`; runs as a commit-phase side effect. */
     fun dispatchPendingNotifications(onError: (Throwable, CompositionErrorInfo) -> Unit) {
-        if (errorGeneration > notifiedGeneration) {
-            notifiedGeneration = errorGeneration
-            val toNotify = pendingErrorNotification
-            pendingErrorNotification = null
-            val info = pendingErrorInfo ?: CompositionErrorInfo(null)
-            pendingErrorInfo = null
-            if (toNotify != null) {
-                onError(toNotify, info)
+        if (pendingErrorNotifications.isNotEmpty()) {
+            val notifications = pendingErrorNotifications.toList()
+            pendingErrorNotifications.clear()
+            for (notification in notifications) {
+                onError(notification.error, notification.info)
             }
         }
         val loop = pendingLoopNotification
@@ -511,6 +505,12 @@ internal class ErrorBoundaryState : RememberObserver {
         recomposeScope = null
     }
 }
+
+@OptIn(ExperimentalComposeRuntimeApi::class)
+internal class ErrorBoundaryNotification(
+    @JvmField val error: Throwable,
+    @JvmField val info: CompositionErrorInfo,
+)
 
 @OptIn(ExperimentalComposeRuntimeApi::class)
 private class ErrorBoundaryScopeView(

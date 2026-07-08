@@ -105,7 +105,9 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
 - **`onError` is per-containment.** Delivery is tracked by a monotonic error generation,
   not by throwable identity: re-containing the *same* `Throwable` instance on a later
   failure is reported again, and a containment whose boundary immediately recovered
-  (a `resetKeys` change consumed in the same pass) is still reported.
+  (a `resetKeys` change consumed in the same pass) is still reported. If more than one
+  error is accepted before the boundary commits, the latest error is displayed by the
+  fallback and every accepted error is reported once in acceptance order.
 - **Identity.** A boundary's contained-error record is keyed by its effective composite key
   hash **plus its marker-nesting depth**. Same-call-site siblings created by ordinary repeated
   composition receive distinct effective composite hashes and contain independently; use
@@ -209,7 +211,8 @@ guard as backstop, no subcomposition.
 runs the suite under **both** composer implementations (gap buffer and link buffer):
 initial-composition containment, recomposition containment with sibling preservation,
 per-containment `onError` (exactly once per containment, again for the same `Throwable`
-instance, and still delivered when `resetKeys` recovery lands in the same pass),
+instance, still delivered when `resetKeys` recovery lands in the same pass, and delivered
+for every accepted error when a forwarded error races a composition-time failure),
 uncontained propagation without a boundary, fallback escalation to the outer boundary,
 nested boundaries, deep-throw attribution without re-running the protected content,
 explicit and fallback-issued (guarded) resets, `resetKeys` recovery incl. guard clearing
