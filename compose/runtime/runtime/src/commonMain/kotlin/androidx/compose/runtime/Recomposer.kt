@@ -703,14 +703,19 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
                                     while (toInsert.isNotEmpty()) {
                                         val insertResult =
                                             performInsertValues(toInsert, modifiedValues)
+                                        toLateApply += insertResult.lateApplyCompositions
                                         if (insertResult.contained) {
-                                            clearRecompositionState()
+                                            abandonContainedMovableContentInserts(
+                                                insertResult.containedCompositions
+                                            )
                                             insertResult.containedCompositions.fastForEach {
+                                                toApply.remove(it)
+                                                it.invalidateAll()
                                                 invalidate(it)
                                             }
-                                            return@withFrameNanos
+                                            toInsert.clear()
+                                            break
                                         }
-                                        toLateApply += insertResult.lateApplyCompositions
                                         fillToInsert()
                                     }
                                 } catch (e: Throwable) {
@@ -1343,15 +1348,22 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
         while (toInsert.isNotEmpty()) {
             val insertResult = performInsertValues(toInsert, null)
             if (insertResult.contained) {
-                composition.abandonChanges()
+                abandonContainedMovableContentInserts(insertResult.containedCompositions)
                 if (invalidateOnContained) {
-                    insertResult.containedCompositions.fastForEach { invalidate(it) }
+                    insertResult.containedCompositions.fastForEach {
+                        it.invalidateAll()
+                        invalidate(it)
+                    }
                 }
                 return true
             }
             fillToInsert()
         }
         return false
+    }
+
+    private fun abandonContainedMovableContentInserts(compositions: List<ControlledComposition>) {
+        compositions.fastForEach { it.abandonChanges() }
     }
 
     private fun performRecompose(

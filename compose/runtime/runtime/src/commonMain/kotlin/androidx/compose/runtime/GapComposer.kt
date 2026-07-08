@@ -2217,6 +2217,8 @@ internal class GapComposer(
         locals: PersistentCompositionLocalMap,
         parameter: Any?,
         force: Boolean,
+        errorBoundaryMarker: ErrorBoundaryMarker? = null,
+        errorBoundaryDepth: Int = 0,
     ) {
         // Start the movable content group
         startMovableGroup(movableContentKey, content)
@@ -2248,6 +2250,8 @@ internal class GapComposer(
 
                 // Create an anchor to the movable group
                 val anchor = writer.anchor(writer.parent(writer.parent))
+                val marker = findCommittedEnclosingErrorBoundaryMarker()
+                val markerDepth = caughtErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2258,6 +2262,8 @@ internal class GapComposer(
                         emptyList(),
                         currentCompositionLocalScope(),
                         null,
+                        marker,
+                        markerDepth,
                     )
                 parentContext.insertMovableContent(reference)
             } else {
@@ -2267,7 +2273,12 @@ internal class GapComposer(
                 providersInvalid = savedProvidersInvalid
             }
         } catch (e: Throwable) {
-            caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            if (errorBoundaryMarker != null) {
+                caughtErrorBoundaryMarker = errorBoundaryMarker
+                caughtErrorBoundaryDepth = errorBoundaryDepth
+            } else {
+                caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            }
             throw e.attachComposeStackTrace { currentStackTrace() }
         } finally {
             // Restore the state back to what is expected by the caller.
@@ -2337,6 +2348,8 @@ internal class GapComposer(
                                             to.locals,
                                             to.parameter,
                                             force = true,
+                                            errorBoundaryMarker = to.errorBoundaryMarker,
+                                            errorBoundaryDepth = to.errorBoundaryDepth,
                                         )
                                     }
                                 }
@@ -2400,6 +2413,8 @@ internal class GapComposer(
                                             to.locals,
                                             to.parameter,
                                             force = true,
+                                            errorBoundaryMarker = to.errorBoundaryMarker,
+                                            errorBoundaryDepth = to.errorBoundaryDepth,
                                         )
                                     }
                                 }
@@ -2835,6 +2850,8 @@ internal class GapComposer(
                     invalidations,
                     currentCompositionLocalScope(group),
                     nestedStates,
+                    null,
+                    0,
                 )
             return reference
         }

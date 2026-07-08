@@ -17,13 +17,16 @@
 package androidx.compose.runtime
 
 import androidx.compose.runtime.mock.Linear
+import androidx.compose.runtime.mock.MockViewListValidator
 import androidx.compose.runtime.mock.MockViewValidator
+import androidx.compose.runtime.mock.TestMonotonicFrameClock
 import androidx.compose.runtime.mock.Text
 import androidx.compose.runtime.mock.View
 import androidx.compose.runtime.mock.ViewApplier
 import androidx.compose.runtime.mock.compositionTest
 import androidx.compose.runtime.mock.expectNoChanges
 import androidx.compose.runtime.mock.validate
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -32,8 +35,18 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
-@OptIn(ExperimentalComposeRuntimeApi::class, InternalComposeApi::class)
+@OptIn(
+    ExperimentalComposeRuntimeApi::class,
+    ExperimentalCoroutinesApi::class,
+    InternalComposeApi::class,
+)
 @Suppress("UNUSED_EXPRESSION")
 class ErrorBoundaryTests {
 
@@ -1156,6 +1169,110 @@ class ErrorBoundaryTests {
         validate { FallbackText(IllegalStateException("boom in movable child")) }
         verifyConsistent()
     }
+
+    @Test
+    fun movableContentChildren_insertedInSameDeferredBatch_keepSuccessfulSibling(): TestResult =
+        runTest {
+            val testClock = TestMonotonicFrameClock(this)
+            withContext(testClock) {
+                val moveToChildren = mutableStateOf(false)
+                val reported = mutableListOf<String>()
+                val rememberEvents = mutableListOf<String>()
+                val observed =
+                    object : RememberObserver {
+                        override fun onRemembered() {
+                            rememberEvents += "remembered"
+                        }
+
+                        override fun onForgotten() {
+                            rememberEvents += "forgotten"
+                        }
+
+                        override fun onAbandoned() {
+                            rememberEvents += "abandoned"
+                        }
+                    }
+                val successfulRoot = View().apply { name = "successful root" }
+                val throwingRoot = View().apply { name = "throwing root" }
+                val recomposer = Recomposer(coroutineContext)
+                val runner = launch { recomposer.runRecomposeAndApplyChanges() }
+                testScheduler.runCurrent()
+                val successfulComposition = Composition(ViewApplier(successfulRoot), recomposer)
+                val throwingComposition = Composition(ViewApplier(throwingRoot), recomposer)
+
+                val successfulChild = movableContentOf {
+                    remember { observed }
+                    Text("successful movable")
+                }
+                val throwingChild = movableContentOf {
+                    Text("throwing movable before")
+                    if (moveToChildren.value) {
+                        error("boom in deferred sibling")
+                    }
+                }
+
+                try {
+                    successfulComposition.setContent {
+                        if (moveToChildren.value) {
+                            successfulChild()
+                        } else {
+                            Text("successful waiting")
+                        }
+                    }
+                    throwingComposition.setContent {
+                        ErrorBoundary(
+                            fallback = { FallbackContent() },
+                            onError = { error, _ -> reported += error.message ?: "" },
+                        ) {
+                            if (moveToChildren.value) {
+                                throwingChild()
+                            } else {
+                                Text("throwing waiting")
+                            }
+                        }
+                    }
+
+                    MockViewListValidator(successfulRoot.children).validate {
+                        Text("successful waiting")
+                    }
+                    MockViewListValidator(throwingRoot.children).validate {
+                        Text("throwing waiting")
+                    }
+                    assertEquals(emptyList(), rememberEvents)
+
+                    Snapshot.withMutableSnapshot { moveToChildren.value = true }
+                    Snapshot.sendApplyNotifications()
+                    assertNotNull(
+                        withTimeoutOrNull(3_000) { recomposer.awaitIdle() },
+                        "timed out waiting for deferred movable insert recomposition",
+                    )
+                    testScheduler.advanceTimeBy(5_000)
+                    assertNotNull(
+                        withTimeoutOrNull(3_000) { recomposer.awaitIdle() },
+                        "timed out waiting for contained boundary fallback recomposition",
+                    )
+
+                    MockViewListValidator(successfulRoot.children).validate {
+                        Text("successful movable")
+                    }
+                    MockViewListValidator(throwingRoot.children).validate {
+                        FallbackText(IllegalStateException("boom in deferred sibling"))
+                    }
+                    assertEquals(listOf("boom in deferred sibling"), reported)
+                    assertEquals(listOf("remembered"), rememberEvents)
+                    (successfulComposition as ControlledComposition).verifyConsistent()
+                    (throwingComposition as ControlledComposition).verifyConsistent()
+                } finally {
+                    successfulComposition.dispose()
+                    throwingComposition.dispose()
+                    recomposer.close()
+                    assertNotNull(
+                        withTimeoutOrNull(3_000) { runner.join() },
+                        "timed out waiting for recomposer runner to finish",
+                    )
+                }
+            }
+        }
 
     @Test
     fun pausableComposition_initialContainedFailure_composesFallback() = compositionTest {

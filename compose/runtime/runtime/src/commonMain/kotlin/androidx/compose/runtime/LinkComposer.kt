@@ -1943,6 +1943,8 @@ internal class LinkComposer(
                                                 to.locals,
                                                 to.parameter,
                                                 force = true,
+                                                errorBoundaryMarker = to.errorBoundaryMarker,
+                                                errorBoundaryDepth = to.errorBoundaryDepth,
                                             )
                                         }
                                     }
@@ -2015,6 +2017,8 @@ internal class LinkComposer(
                                                 locals = to.locals,
                                                 parameter = to.parameter,
                                                 force = true,
+                                                errorBoundaryMarker = to.errorBoundaryMarker,
+                                                errorBoundaryDepth = to.errorBoundaryDepth,
                                             )
                                         }
                                     }
@@ -2068,6 +2072,8 @@ internal class LinkComposer(
         locals: PersistentCompositionLocalMap,
         parameter: Any?,
         force: Boolean,
+        errorBoundaryMarker: ErrorBoundaryMarker? = null,
+        errorBoundaryDepth: Int = 0,
     ) {
         // Start the movable content group
         startMovableGroup(movableContentKey, content)
@@ -2099,6 +2105,8 @@ internal class LinkComposer(
 
                 val address = builder.parent(builder.parentGroup)
                 val anchor = builder.table.addressSpace.anchorOfAddress(address)
+                val marker = findCommittedEnclosingErrorBoundaryMarker()
+                val markerDepth = caughtErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2109,6 +2117,8 @@ internal class LinkComposer(
                         emptyList(),
                         currentCompositionLocalScope(),
                         null,
+                        marker,
+                        markerDepth,
                     )
                 parentContext.insertMovableContent(reference)
             } else {
@@ -2124,7 +2134,12 @@ internal class LinkComposer(
                 providersInvalid = savedProvidersInvalid
             }
         } catch (e: Throwable) {
-            caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            if (errorBoundaryMarker != null) {
+                caughtErrorBoundaryMarker = errorBoundaryMarker
+                caughtErrorBoundaryDepth = errorBoundaryDepth
+            } else {
+                caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            }
             throw e.attachComposeStackTrace { currentStackTrace() }
         } finally {
             // Restore the state back to what is expected by the caller.
@@ -2365,6 +2380,8 @@ internal class LinkComposer(
                     invalidations,
                     currentCompositionLocalScope(group),
                     nestedStates,
+                    null,
+                    0,
                 )
             return reference
         }
