@@ -213,6 +213,49 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun onErrorThrowing_doesNotCorruptBoundaryState() = compositionTest {
+        var shouldFail = true
+        var throwFromOnError = true
+        var capturedReset: (() -> Unit)? = null
+        val siblingText = mutableStateOf("sibling")
+        compose {
+            Linear {
+                ErrorBoundary(
+                    fallback = {
+                        capturedReset = ::reset
+                        FallbackContent()
+                    },
+                    onError = { _, _ -> if (throwFromOnError) error("onError boom") },
+                ) {
+                    if (shouldFail) error("content boom") else Text("content")
+                }
+                Text(siblingText.value)
+            }
+        }
+
+        validate {
+            Linear {
+                FallbackText(IllegalStateException("content boom"))
+                Text("sibling")
+            }
+        }
+
+        throwFromOnError = false
+        shouldFail = false
+        siblingText.value = "updated sibling"
+        assertNotNull(capturedReset, "fallback should have captured reset")()
+        advance()
+
+        validate {
+            Linear {
+                Text("content")
+                Text("updated sibling")
+            }
+        }
+        verifyConsistent()
+    }
+
+    @Test
     fun guardedReset_fromInsideFallbackComposition_reattempts() = compositionTest {
         var failuresToGo = 1
         var fallbackRuns = 0
@@ -317,6 +360,50 @@ class ErrorBoundaryTests {
         )
         verifyConsistent()
     }
+
+    @Test
+    fun rememberThrow_underCompositionLocalAndKey_isAttributedWithoutRerunningContent() =
+        compositionTest {
+            val local = compositionLocalOf { "missing" }
+            val revision = mutableStateOf(0)
+            var contentRuns = 0
+
+            @Composable
+            fun DeepChild() {
+                CompositionLocalProvider(local provides "provided") {
+                    key("deep-key") {
+                        val remembered =
+                            remember(revision.value) {
+                                if (revision.value == 1) error("boom in remember")
+                                "remembered ${revision.value}"
+                            }
+                        Text("${local.current}: $remembered")
+                    }
+                }
+            }
+
+            compose {
+                ErrorBoundary(fallback = { FallbackContent() }) {
+                    contentRuns++
+                    DeepChild()
+                }
+            }
+
+            validate { Text("provided: remembered 0") }
+            assertEquals(1, contentRuns)
+
+            revision.value = 1
+            advance()
+
+            validate { FallbackText(IllegalStateException("boom in remember")) }
+            assertEquals(
+                1,
+                contentRuns,
+                "the protected content lambda must not re-run when only the deep child scope " +
+                    "throws from remember",
+            )
+            verifyConsistent()
+        }
 
     @Test
     fun siblingStateChange_inTheContainedPass_isStillApplied() = compositionTest {
@@ -561,6 +648,46 @@ class ErrorBoundaryTests {
             reported.any { it is ErrorBoundaryResetLoopException },
             "expected the guard to report the re-attempt loop through onError",
         )
+        verifyConsistent()
+    }
+
+    @Test
+    fun forcedReset_afterAutoResetGuardTrips_isHonoredAndClearsGuard() = compositionTest {
+        val dataRevision = mutableStateOf(0)
+        var shouldFail = true
+        var attempts = 0
+        var capturedReset: (() -> Unit)? = null
+        compose {
+            ErrorBoundary(
+                fallback = {
+                    capturedReset = ::reset
+                    Text("fallback")
+                },
+                resetKeys = arrayOf(dataRevision.value),
+            ) {
+                attempts++
+                Text("content")
+                if (shouldFail) error("boom $attempts")
+            }
+        }
+
+        repeat(10) {
+            dataRevision.value = it + 1
+            advance(ignorePendingWork = false)
+        }
+
+        validate { Text("fallback") }
+        assertEquals(
+            4,
+            attempts,
+            "expected the guard to stop after the initial attempt plus three auto-resets",
+        )
+
+        shouldFail = false
+        assertNotNull(capturedReset, "fallback should have captured reset")()
+        advance()
+
+        validate { Text("content") }
         verifyConsistent()
     }
 

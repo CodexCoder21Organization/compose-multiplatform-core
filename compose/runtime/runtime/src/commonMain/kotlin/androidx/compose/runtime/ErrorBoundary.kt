@@ -16,6 +16,7 @@
 
 package androidx.compose.runtime
 
+import androidx.compose.runtime.internal.logError
 import androidx.compose.runtime.tooling.DiagnosticComposeException
 import kotlin.concurrent.Volatile
 import kotlin.jvm.JvmField
@@ -133,7 +134,9 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * [Throwable] instance on a later failure, and including multiple errors accepted before the
  * boundary's next commit. When more than one error is accepted before the boundary commits (for
  * example a contained throw and a concurrently forwarded error), the latest error is the one
- * displayed by [fallback].
+ * displayed by [fallback]. If [onError] itself throws, the runtime logs that callback failure and
+ * keeps the boundary/recomposer state usable; `onError` is a reporting hook and its own failure is
+ * not re-contained by the boundary.
  *
  * Same-call-site sibling boundaries created by ordinary repeated composition receive distinct
  * effective composite key hashes and keep their contained error states independent. As with other
@@ -463,13 +466,17 @@ internal class ErrorBoundaryState : RememberObserver {
             val notifications = pendingErrorNotifications.toList()
             pendingErrorNotifications.clear()
             for (notification in notifications) {
-                onError(notification.error, notification.info)
+                dispatchOnError(onError, notification.error, notification.info)
             }
         }
         val loop = pendingLoopNotification
         if (loop != null) {
             pendingLoopNotification = null
-            onError(ErrorBoundaryResetLoopException(loop), CompositionErrorInfo(null))
+            dispatchOnError(
+                onError,
+                ErrorBoundaryResetLoopException(loop),
+                CompositionErrorInfo(null),
+            )
         }
     }
 
@@ -503,6 +510,22 @@ internal class ErrorBoundaryState : RememberObserver {
     fun clearComposerReferences() {
         composer = null
         recomposeScope = null
+    }
+}
+
+@OptIn(ExperimentalComposeRuntimeApi::class)
+private fun dispatchOnError(
+    onError: (Throwable, CompositionErrorInfo) -> Unit,
+    error: Throwable,
+    info: CompositionErrorInfo,
+) {
+    try {
+        onError(error, info)
+    } catch (callbackFailure: Throwable) {
+        logError(
+            "ErrorBoundary onError callback threw while reporting a contained error.",
+            callbackFailure,
+        )
     }
 }
 

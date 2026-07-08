@@ -107,7 +107,9 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   failure is reported again, and a containment whose boundary immediately recovered
   (a `resetKeys` change consumed in the same pass) is still reported. If more than one
   error is accepted before the boundary commits, the latest error is displayed by the
-  fallback and every accepted error is reported once in acceptance order.
+  fallback and every accepted error is reported once in acceptance order. If the
+  `onError` callback itself throws, the callback failure is logged and does not re-enter
+  containment or poison the recomposer; `onError` is a best-effort reporting hook.
 - **Identity.** A boundary's contained-error record is keyed by its effective composite key
   hash **plus its marker-nesting depth**. Same-call-site siblings created by ordinary repeated
   composition receive distinct effective composite hashes and contain independently; use
