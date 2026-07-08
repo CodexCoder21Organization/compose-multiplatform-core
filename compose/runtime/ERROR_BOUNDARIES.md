@@ -211,13 +211,14 @@ instance, and still delivered when `resetKeys` recovery lands in the same pass),
 uncontained propagation without a boundary, fallback escalation to the outer boundary,
 nested boundaries, deep-throw attribution without re-running the protected content,
 explicit and fallback-issued (guarded) resets, `resetKeys` recovery incl. guard clearing
-after partial failures, the bounded re-throw guard (loop held + reported), the runaway
-nested-escalation hard cap, the imperative `throwToBoundary` channel (incl. repeat
-forwards), `onForgotten` teardown of replaced content, `onAbandoned` for values
-remembered in failed passes, snapshot rollback of failed-pass state writes including
-same-pass sibling changes being re-applied, sibling independence, removal-while-tripped
-then fresh re-add, boundaries inside subcompositions (initial + recomposition, recomposer
-stays healthy), boundaries inside `movableContentOf` (tripped state moves with the
-content and recovers), pausable composition containment, diagnostic composition stack
-traces in `CompositionErrorInfo`, re-containment after recovery, and transparency of a
-healthy boundary.
+after partial failures and in-place element changes on a stable key array, fallback scope
+updates for equal-but-distinct `Throwable` instances, the bounded re-throw guard (loop
+held + reported), the runaway nested-escalation hard cap, the imperative
+`throwToBoundary` channel (incl. repeat forwards), `onForgotten` teardown of replaced
+content, `onAbandoned` for values remembered in failed passes, snapshot rollback of
+failed-pass state writes including same-pass sibling changes being re-applied, sibling
+independence, removal-while-tripped then fresh re-add, boundaries inside subcompositions
+(initial + recomposition, recomposer stays healthy), boundaries inside `movableContentOf`
+(tripped state moves with the content and recovers), pausable composition containment,
+diagnostic composition stack traces in `CompositionErrorInfo`, re-containment after
+recovery, and transparency of a healthy boundary.

@@ -192,7 +192,7 @@ public fun ErrorBoundary(
             SideEffect { state.noteContentCommitted() }
         }
     } else {
-        val scope = remember(error) { ErrorBoundaryScopeView(error, state) }
+        val scope = remember(state.errorGeneration) { ErrorBoundaryScopeView(error, state) }
         scope.fallback()
     }
     // Dispatched from BOTH branches: an error that was contained and then immediately auto-reset
@@ -420,7 +420,7 @@ internal class ErrorBoundaryState : RememberObserver {
     /** Applies resetKeys-driven recovery: a key change while showing the fallback re-attempts. */
     fun applyResetKeys(resetKeys: Array<Any?>) {
         val previous = lastResetKeys
-        lastResetKeys = resetKeys
+        lastResetKeys = resetKeys.copyOf()
         if (error != null && previous != null && !resetKeys.contentEquals(previous)) {
             autoReset()
         }
