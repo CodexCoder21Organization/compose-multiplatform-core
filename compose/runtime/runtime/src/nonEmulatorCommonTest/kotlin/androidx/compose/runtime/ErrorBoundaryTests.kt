@@ -59,6 +59,9 @@ class ErrorBoundaryTests {
         Text("fallback: ${error.message}")
     }
 
+    private fun View.flattenedText(): List<String> =
+        listOfNotNull(text) + children.flatMap { it.flattenedText() }
+
     @Test
     fun initialCompositionThrow_composesFallback() = compositionTest {
         compose {
@@ -77,6 +80,33 @@ class ErrorBoundaryTests {
                 Text("after boundary")
             }
         }
+        verifyConsistent()
+    }
+
+    @Test
+    fun rootBoundary_initialCompositionThrow_composesFallback() = compositionTest {
+        compose { ErrorBoundary(fallback = { FallbackContent() }) { error("root initial boom") } }
+
+        validate { FallbackText(IllegalStateException("root initial boom")) }
+        verifyConsistent()
+    }
+
+    @Test
+    fun rootBoundary_recompositionThrow_composesFallback() = compositionTest {
+        val fail = mutableStateOf(false)
+        compose {
+            ErrorBoundary(fallback = { FallbackContent() }) {
+                Text("root content")
+                if (fail.value) error("root recomposition boom")
+            }
+        }
+
+        validate { Text("root content") }
+
+        fail.value = true
+        advance()
+
+        validate { FallbackText(IllegalStateException("root recomposition boom")) }
         verifyConsistent()
     }
 
@@ -256,6 +286,39 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun sideEffectThrow_underBoundary_isNotContained() = compositionTest {
+        val e =
+            assertFailsWith<IllegalStateException> {
+                compose {
+                    ErrorBoundary(fallback = { Text("fallback") }) {
+                        Text("content")
+                        SideEffect { error("side effect boom") }
+                    }
+                }
+            }
+
+        assertEquals("side effect boom", e.message)
+    }
+
+    @Test
+    fun disposableEffectInitThrow_underBoundary_isNotContained() = compositionTest {
+        val e =
+            assertFailsWith<IllegalStateException> {
+                compose {
+                    ErrorBoundary(fallback = { Text("fallback") }) {
+                        Text("content")
+                        DisposableEffect(Unit) {
+                            error("disposable init boom")
+                            onDispose {}
+                        }
+                    }
+                }
+            }
+
+        assertEquals("disposable init boom", e.message)
+    }
+
+    @Test
     fun guardedReset_fromInsideFallbackComposition_reattempts() = compositionTest {
         var failuresToGo = 1
         var fallbackRuns = 0
@@ -288,6 +351,54 @@ class ErrorBoundaryTests {
         advance()
 
         validate { Text("content") }
+        verifyConsistent()
+    }
+
+    @Test
+    fun resetKeysAutoResetGuard_allowsExactlyThreeAutomaticReattempts() = compositionTest {
+        var attempts = 0
+        val dataRevision = mutableStateOf(0)
+        val reported = mutableListOf<String>()
+        compose {
+            ErrorBoundary(
+                fallback = { FallbackContent() },
+                onError = { error, _ -> reported += error.message ?: "" },
+                resetKeys = arrayOf(dataRevision.value),
+            ) {
+                dataRevision.value
+                attempts++
+                Text("attempt $attempts")
+                error("boom attempt $attempts")
+            }
+        }
+
+        validate { FallbackText(IllegalStateException("boom attempt 1")) }
+        assertEquals(1, attempts)
+
+        repeat(3) { index ->
+            dataRevision.value = index + 1
+            advance()
+            validate { FallbackText(IllegalStateException("boom attempt ${index + 2}")) }
+            assertEquals(index + 2, attempts)
+        }
+
+        dataRevision.value = 4
+        advance()
+
+        validate { FallbackText(IllegalStateException("boom attempt 4")) }
+        assertEquals(4, attempts, "the guard must suppress a fifth content attempt")
+        assertEquals(
+            listOf(
+                "boom attempt 1",
+                "boom attempt 2",
+                "boom attempt 3",
+                "boom attempt 4",
+                "ErrorBoundary content kept failing across 3 consecutive automatic re-attempts " +
+                    "with no successful composition in between; holding the fallback. An " +
+                    "explicit reset() from outside composition re-attempts and clears this guard.",
+            ),
+            reported,
+        )
         verifyConsistent()
     }
 
@@ -431,6 +542,38 @@ class ErrorBoundaryTests {
                 Text("new")
             }
         }
+        verifyConsistent()
+    }
+
+    @Test
+    fun recursiveSameCallSiteBoundaries_containSelectedDepthsIndependently() = compositionTest {
+        val failingDepth = mutableStateOf<Int?>(null)
+        val reported = mutableListOf<String>()
+
+        @Composable
+        fun Nested(depth: Int) {
+            ErrorBoundary(
+                fallback = { Text("fallback $depth: ${error.message}") },
+                onError = { error, _ -> reported += "depth $depth: ${error.message}" },
+            ) {
+                Text("content $depth")
+                if (failingDepth.value == depth) error("boom $depth")
+                if (depth > 0) Nested(depth - 1)
+            }
+        }
+
+        compose { Nested(24) }
+
+        assertEquals((24 downTo 0).map { "content $it" }, root.flattenedText())
+
+        failingDepth.value = 7
+        advance()
+
+        assertEquals(
+            (24 downTo 8).map { "content $it" } + "fallback 7: boom 7",
+            root.flattenedText(),
+        )
+        assertEquals(listOf("depth 7: boom 7"), reported)
         verifyConsistent()
     }
 
