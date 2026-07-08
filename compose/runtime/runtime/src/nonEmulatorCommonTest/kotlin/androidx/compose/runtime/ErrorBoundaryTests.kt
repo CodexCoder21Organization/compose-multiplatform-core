@@ -954,6 +954,45 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun sameCallSiteSiblingBoundaries_withoutKey_containIndependently() = compositionTest {
+        val failSecond = mutableStateOf(false)
+        val hashes = arrayOfNulls<CompositeKeyHashCode>(2)
+        compose {
+            Linear {
+                repeat(2) { index ->
+                    ErrorBoundary(fallback = { Text("fallback $index: ${error.message}") }) {
+                        hashes[index] = currentCompositeKeyHashCode
+                        Text("content $index")
+                        if (failSecond.value && index == 1) error("boom $index")
+                    }
+                }
+            }
+        }
+
+        validate {
+            Linear {
+                Text("content 0")
+                Text("content 1")
+            }
+        }
+        assertTrue(
+            hashes[0] != hashes[1],
+            "same-call-site sibling boundary content should receive distinct composite hashes",
+        )
+
+        failSecond.value = true
+        advance()
+
+        validate {
+            Linear {
+                Text("content 0")
+                Text("fallback 1: boom 1")
+            }
+        }
+        verifyConsistent()
+    }
+
+    @Test
     fun recoveredBoundary_containsAgainOnLaterFailure() = compositionTest {
         var shouldFail = true
         var capturedReset: (() -> Unit)? = null

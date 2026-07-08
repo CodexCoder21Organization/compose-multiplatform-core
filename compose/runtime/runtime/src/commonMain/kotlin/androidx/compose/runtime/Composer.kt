@@ -1052,27 +1052,28 @@ internal abstract class InternalComposer : Composer {
 
     /**
      * The number of error boundary marker groups enclosing the current composition position. Used
-     * by [ErrorBoundary] to key its trip record: the composite key hash alone is not collision
-     * free for identically-structured *nested* boundaries (each recursion level applies the same
+     * by [ErrorBoundary] to key its trip record: the composite key hash alone is not collision free
+     * for identically-structured *nested* boundaries (each recursion level applies the same
      * rotate-and-xor sequence to the hash, which cycles back to a previous value after a
      * structure-dependent number of levels), and a collision would let one boundary consume
      * another's contained error and skip escalation levels. Depth disambiguates the nested case;
-     * same-call-site *siblings* (same hash, same depth) remain the documented `key(...)` caveat.
+     * ordinary same-call-site siblings receive distinct effective composite hashes.
      */
     internal abstract fun errorBoundaryNestingDepth(): Int
 
     /**
      * Errors contained to error boundaries, keyed by the boundary's composite key hash plus its
-     * marker-nesting depth. Kept on the composer — not in the boundary's remembered state — so
-     * that a boundary whose very first composition failed (abandoning its remembered state with
-     * the rest of the failed pass) can still find its contained error when the re-attempted pass
-     * composes it afresh.
+     * marker-nesting depth. Kept on the composer — not in the boundary's remembered state — so that
+     * a boundary whose very first composition failed (abandoning its remembered state with the rest
+     * of the failed pass) can still find its contained error when the re-attempted pass composes it
+     * afresh.
      *
      * Only accessed on the composition's applier thread. Allocated lazily; compositions that never
      * contain an error never pay for it. Records for the same hash but different depths form a
      * short linked chain.
      */
-    private var errorBoundaryTrips: MutableScatterMap<CompositeKeyHashCode, ErrorBoundaryTripRecord>? =
+    private var errorBoundaryTrips:
+        MutableScatterMap<CompositeKeyHashCode, ErrorBoundaryTripRecord>? =
         null
 
     internal fun errorBoundaryTripRecord(
@@ -1470,10 +1471,9 @@ internal const val defaultsKey = -127
 @PublishedApi internal const val reuseKey: Int = 207
 
 /**
- * The key of the group an [ErrorBoundary] wraps its protected content in. The group's object key
- * is the boundary's [ErrorBoundaryMarker]; the composer finds it by walking parent groups up from
- * the position of a throw to attribute a contained composition error to its nearest enclosing
- * boundary.
+ * The key of the group an [ErrorBoundary] wraps its protected content in. The group's object key is
+ * the boundary's [ErrorBoundaryMarker]; the composer finds it by walking parent groups up from the
+ * position of a throw to attribute a contained composition error to its nearest enclosing boundary.
  */
 internal const val errorBoundaryContentKey: Int = 208
 

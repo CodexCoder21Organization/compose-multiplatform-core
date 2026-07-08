@@ -106,13 +106,13 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   not by throwable identity: re-containing the *same* `Throwable` instance on a later
   failure is reported again, and a containment whose boundary immediately recovered
   (a `resetKeys` change consumed in the same pass) is still reported.
-- **Identity caveat.** A boundary's contained-error record is keyed by its composite key
-  hash **plus its marker-nesting depth**. The depth disambiguates identically-structured
-  *nested* boundaries (recursive same-call-site nesting cycles the composite hash back to
-  a previous value after a structure-dependent number of levels — discovered by the
-  runaway-escalation test); same-call-site *siblings* (same hash, same depth) should be
-  wrapped in `key(...)` to keep their records distinct, exactly like other position-keyed
-  runtime state.
+- **Identity.** A boundary's contained-error record is keyed by its effective composite key
+  hash **plus its marker-nesting depth**. Same-call-site siblings created by ordinary repeated
+  composition receive distinct effective composite hashes and contain independently; use
+  `key(...)` for the usual Compose reason when list items can reorder and need stable identity.
+  The depth disambiguates identically-structured *nested* boundaries (recursive same-call-site
+  nesting can cycle the composite hash back to a previous value after a structure-dependent
+  number of levels — discovered by the runaway-escalation test).
 
 ## Design: why runtime-only containment works (no compiler change in v1)
 

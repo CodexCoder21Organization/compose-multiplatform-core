@@ -134,9 +134,9 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * boundary's next commit (for example a contained throw and a concurrently forwarded error), the
  * latest error is the one displayed and reported.
  *
- * Two sibling boundaries created from the same call site (for example, in a loop) share the same
- * composite key hash unless distinguished with [key]; wrap such boundaries in [key] to keep their
- * contained error states distinct.
+ * Same-call-site sibling boundaries created by ordinary repeated composition receive distinct
+ * effective composite key hashes and keep their contained error states independent. As with other
+ * position-keyed runtime state, use [key] when list items can reorder and need stable identity.
  *
  * Known v1 limitations: a boundary inserted inside newly-created [movableContentOf] content cannot
  * contain a failure raised during that deferred insertion pass; wrap the movable content invocation
