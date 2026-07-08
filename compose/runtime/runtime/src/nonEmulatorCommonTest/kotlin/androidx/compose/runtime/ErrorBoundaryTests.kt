@@ -28,6 +28,7 @@ import androidx.compose.runtime.mock.validate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -610,6 +611,85 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun throwToBoundary_onStaleHandleAfterBoundaryLeavesComposition_isIgnored() =
+        compositionTest {
+            val showBoundary = mutableStateOf(true)
+            var capturedHandle: ErrorBoundaryHandle? = null
+            var compositionCount = 0
+            compose {
+                compositionCount++
+                Linear {
+                    if (showBoundary.value) {
+                        ErrorBoundary(fallback = { FallbackContent() }) {
+                            capturedHandle = LocalErrorBoundary.current
+                            Text("content")
+                        }
+                    }
+                    Text("sibling")
+                }
+            }
+
+            validate {
+                Linear {
+                    Text("content")
+                    Text("sibling")
+                }
+            }
+            val staleHandle = assertNotNull(capturedHandle)
+
+            showBoundary.value = false
+            advance()
+            validate { Linear { Text("sibling") } }
+            val compositionCountAfterRemoval = compositionCount
+
+            staleHandle.throwToBoundary(IllegalStateException("stale"))
+            val changes = advanceCount()
+            assertEquals(
+                0,
+                changes,
+                "throwToBoundary on a forgotten boundary handle must not schedule changes",
+            )
+            assertEquals(
+                compositionCountAfterRemoval,
+                compositionCount,
+                "throwToBoundary on a forgotten boundary handle must not recompose the parent",
+            )
+            validate { Linear { Text("sibling") } }
+
+            showBoundary.value = true
+            advance()
+            validate {
+                Linear {
+                    Text("content")
+                    Text("sibling")
+                }
+            }
+            verifyConsistent()
+        }
+
+    @Test
+    fun sideEffectThrow_underBoundaryEscapesWithoutTrippingBoundary() = compositionTest {
+        var fallbackComposed = false
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                compose {
+                    ErrorBoundary(
+                        fallback = {
+                            fallbackComposed = true
+                            FallbackContent()
+                        }
+                    ) {
+                        Text("content")
+                        SideEffect { error("side effect boom") }
+                    }
+                }
+            }
+
+        assertEquals("side effect boom", thrown.message)
+        assertFalse(fallbackComposed, "apply-phase SideEffect failures are not boundary-contained")
+    }
+
+    @Test
     fun localErrorBoundary_isNullWithoutBoundary() = compositionTest {
         var handle: ErrorBoundaryHandle? = ErrorBoundaryHandle { }
         compose {
@@ -617,6 +697,44 @@ class ErrorBoundaryTests {
             Text("content")
         }
         assertNull(handle, "LocalErrorBoundary must default to null outside any boundary")
+    }
+
+    @Test
+    fun fallbackSeesOuterCompositionLocalsAndOuterErrorBoundaryHandle() = compositionTest {
+        val localToken = compositionLocalOf { "default" }
+        var outerHandleFromContent: ErrorBoundaryHandle? = null
+        var innerHandleFromContent: ErrorBoundaryHandle? = null
+        var handleSeenInInnerFallback: ErrorBoundaryHandle? = null
+        compose {
+            ErrorBoundary(fallback = { Text("outer fallback") }) {
+                outerHandleFromContent = LocalErrorBoundary.current
+                CompositionLocalProvider(localToken provides "provided") {
+                    ErrorBoundary(
+                        fallback = {
+                            handleSeenInInnerFallback = LocalErrorBoundary.current
+                            Text("${localToken.current}: ${error.message}")
+                        }
+                    ) {
+                        innerHandleFromContent = LocalErrorBoundary.current
+                        error("boom")
+                    }
+                }
+            }
+        }
+
+        validate { Text("provided: boom") }
+        val outerHandle = assertNotNull(outerHandleFromContent)
+        val innerHandle = assertNotNull(innerHandleFromContent)
+        assertSame(
+            outerHandle,
+            handleSeenInInnerFallback,
+            "a fallback composes outside its own boundary marker and must see the outer handle",
+        )
+        assertTrue(
+            outerHandle !== innerHandle,
+            "content inside a nested boundary must see the inner handle, not the outer one",
+        )
+        verifyConsistent()
     }
 
     @Test
@@ -656,6 +774,73 @@ class ErrorBoundaryTests {
             events,
             "committed content replaced by the fallback must receive onForgotten",
         )
+    }
+
+    @Test
+    fun disposableEffectFromFailedPass_neverStarts() = compositionTest {
+        val events = mutableListOf<String>()
+        compose {
+            ErrorBoundary(fallback = { Text("fallback") }) {
+                DisposableEffect(Unit) {
+                    events.add("effect started")
+                    onDispose { events.add("effect disposed") }
+                }
+                error("boom")
+            }
+        }
+
+        validate { Text("fallback") }
+        assertTrue(
+            events.isEmpty(),
+            "DisposableEffect registered in an abandoned composition pass must never start",
+        )
+        verifyConsistent()
+    }
+
+    @Test
+    fun fallbackDisposableEffect_disposesExactlyOnceWhenBoundaryRecovers() = compositionTest {
+        var shouldFail = true
+        var capturedReset: (() -> Unit)? = null
+        var fallbackStarts = 0
+        var fallbackDisposes = 0
+        var contentStarts = 0
+        var contentDisposes = 0
+        compose {
+            ErrorBoundary(
+                fallback = {
+                    capturedReset = ::reset
+                    DisposableEffect(Unit) {
+                        fallbackStarts++
+                        onDispose { fallbackDisposes++ }
+                    }
+                    Text("fallback")
+                }
+            ) {
+                DisposableEffect(Unit) {
+                    contentStarts++
+                    onDispose { contentDisposes++ }
+                }
+                Text("content")
+                if (shouldFail) error("boom")
+            }
+        }
+
+        validate { Text("fallback") }
+        assertEquals(1, fallbackStarts, "fallback effect should start once")
+        assertEquals(0, fallbackDisposes, "fallback effect should still be active")
+        assertEquals(0, contentStarts, "failed content effect must not start")
+        assertEquals(0, contentDisposes, "failed content effect must not dispose")
+
+        shouldFail = false
+        assertNotNull(capturedReset, "fallback should have captured reset")()
+        advance()
+
+        validate { Text("content") }
+        assertEquals(1, fallbackStarts, "fallback effect should not restart during recovery")
+        assertEquals(1, fallbackDisposes, "fallback effect should dispose exactly once")
+        assertEquals(1, contentStarts, "healthy content effect should start once")
+        assertEquals(0, contentDisposes, "recovered content effect should still be active")
+        verifyConsistent()
     }
 
     @Test
@@ -741,6 +926,27 @@ class ErrorBoundaryTests {
                 Text("content 2")
             }
         }
+        verifyConsistent()
+    }
+
+    @Test
+    fun userKey208_insideBoundaryDoesNotCollideWithReservedMarkerKey() = compositionTest {
+        val fail = mutableStateOf(false)
+        compose {
+            ErrorBoundary(fallback = { FallbackContent() }) {
+                key(208) {
+                    Text("content")
+                    if (fail.value) error("boom")
+                }
+            }
+        }
+
+        validate { Text("content") }
+
+        fail.value = true
+        advance()
+
+        validate { FallbackText(IllegalStateException("boom")) }
         verifyConsistent()
     }
 

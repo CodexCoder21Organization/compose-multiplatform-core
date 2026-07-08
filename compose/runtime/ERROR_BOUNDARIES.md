@@ -98,6 +98,10 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   initial-composition re-attempt loop gives up (surfacing a runtime error) after 64
   contained failures in one `composeInitial` call, and a single boundary position stops
   containing after 64 recorded failures with no success and no user reset in between.
+- **Forgotten handles are inert.** A handle retained after its boundary leaves the
+  composition may still be called, but it has no composition to schedule: it does not
+  invalidate stale scopes, does not recompose unrelated content, and does not keep the
+  forgotten composition graph reachable.
 - **`onError` is per-containment.** Delivery is tracked by a monotonic error generation,
   not by throwable identity: re-containing the *same* `Throwable` instance on a later
   failure is reported again, and a containment whose boundary immediately recovered
@@ -214,11 +218,17 @@ explicit and fallback-issued (guarded) resets, `resetKeys` recovery incl. guard 
 after partial failures and in-place element changes on a stable key array, fallback scope
 updates for equal-but-distinct `Throwable` instances, the bounded re-throw guard (loop
 held + reported), the runaway nested-escalation hard cap, the imperative
-`throwToBoundary` channel (incl. repeat forwards), `onForgotten` teardown of replaced
-content, `onAbandoned` for values remembered in failed passes, snapshot rollback of
-failed-pass state writes including same-pass sibling changes being re-applied, sibling
-independence, removal-while-tripped then fresh re-add, boundaries inside subcompositions
-(initial + recomposition, recomposer stays healthy), boundaries inside `movableContentOf`
-(tripped state moves with the content and recovers), pausable composition containment,
-diagnostic composition stack traces in `CompositionErrorInfo`, re-containment after
-recovery, and transparency of a healthy boundary.
+`throwToBoundary` channel (incl. repeat forwards and stale handles after boundary
+removal being inert and not retaining a disposed composition on JVM), cross-thread
+`throwToBoundary` and fallback `reset()` on JVM, unforwarded `LaunchedEffect` and
+`SideEffect` failures escaping instead of being contained, outer `CompositionLocal` and
+`LocalErrorBoundary` visibility from fallback, `onForgotten` teardown of replaced content,
+`onAbandoned` for values remembered in failed passes, `DisposableEffect` non-launch from
+failed passes, fallback `DisposableEffect` disposal exactly once on recovery, snapshot
+rollback of failed-pass state writes including same-pass sibling changes being re-applied,
+sibling independence, removal-while-tripped then fresh re-add, boundaries inside
+subcompositions (initial + recomposition, recomposer stays healthy), boundaries inside
+`movableContentOf` (tripped state moves with the content and recovers), user `key(208)`
+groups inside protected content not colliding with the boundary marker key, pausable
+composition containment, diagnostic composition stack traces in `CompositionErrorInfo`,
+re-containment after recovery, and transparency of a healthy boundary.

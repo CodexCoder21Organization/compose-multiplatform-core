@@ -277,6 +277,9 @@ internal class ErrorBoundaryMarker(@JvmField val state: ErrorBoundaryState) {
                 (composer.composition as? CompositionImpl)?.let { it.parent.invalidate(it) }
             }
         }
+        if (state.abandoned) {
+            state.clearComposerReferences()
+        }
         return true
     }
 }
@@ -501,11 +504,17 @@ internal class ErrorBoundaryState : RememberObserver {
 
     override fun onForgotten() {
         composer?.clearErrorBoundaryTripRecord(keyHash, depth)
+        clearComposerReferences()
     }
 
     override fun onAbandoned() {
         abandoned = true
         composer?.clearErrorBoundaryTripRecord(keyHash, depth)
+    }
+
+    fun clearComposerReferences() {
+        composer = null
+        recomposeScope = null
     }
 }
 
