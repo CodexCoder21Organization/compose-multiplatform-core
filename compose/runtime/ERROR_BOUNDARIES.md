@@ -102,12 +102,14 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   composition may still be called, but it has no composition to schedule: it does not
   invalidate stale scopes, does not recompose unrelated content, and does not keep the
   forgotten composition graph reachable.
-- **`onError` is per-containment.** Delivery is tracked by a monotonic error generation,
-  not by throwable identity: re-containing the *same* `Throwable` instance on a later
-  failure is reported again, and a containment whose boundary immediately recovered
-  (a `resetKeys` change consumed in the same pass) is still reported. If more than one
-  error is accepted before the boundary commits, the latest error is displayed by the
-  fallback and every accepted error is reported once in acceptance order. If the
+- **`onError` is per-containment.** Every accepted error is appended to the boundary's
+  pending-notification queue and dispatched in acceptance order from the boundary's commit
+  `SideEffect`; delivery is not keyed by throwable identity. Re-containing the *same*
+  `Throwable` instance on a later failure is therefore reported again, and a containment whose
+  boundary immediately recovered (a `resetKeys` change consumed in the same pass) is still
+  reported. If more than one error is accepted before the boundary commits, the latest error is
+  displayed by the fallback and every accepted error is reported once. The monotonic error
+  generation only gives each newly displayed fallback a fresh `remember` scope identity. If the
   `onError` callback itself throws, the callback failure is logged and does not re-enter
   containment or poison the recomposer; `onError` is a best-effort reporting hook.
 - **Identity.** A boundary's contained-error record is keyed by its effective composite key

@@ -1695,6 +1695,89 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun nestedMovableContent_underNestedBoundary_attributesToInnerBoundaryAtDepth1() =
+        compositionTest {
+            val move = mutableStateOf(false)
+            var shouldThrow = true
+            var resetInner: (() -> Unit)? = null
+            val outerReported = mutableListOf<String>()
+            val innerReported = mutableListOf<String>()
+
+            val successfulChild = movableContentOf { Text("successful movable") }
+            val nestedThrowingChild = movableContentOf {
+                Text("nested movable before")
+                if (move.value && shouldThrow) error("boom in depth-1 nested movable")
+            }
+            val throwingHost = movableContentOf {
+                Text("throwing host")
+                nestedThrowingChild()
+            }
+
+            compose {
+                ErrorBoundary(
+                    fallback = { Text("outer fallback: ${error.message}") },
+                    onError = { error, _ -> outerReported += error.message ?: "" },
+                ) {
+                    Text("outer before")
+                    if (move.value) {
+                        successfulChild()
+                    } else {
+                        Text("successful waiting")
+                    }
+                    ErrorBoundary(
+                        fallback = {
+                            resetInner = ::reset
+                            Text("inner fallback: ${error.message}")
+                        },
+                        onError = { error, _ -> innerReported += error.message ?: "" },
+                    ) {
+                        if (move.value) {
+                            throwingHost()
+                        } else {
+                            Text("throwing waiting")
+                        }
+                    }
+                    Text("outer after")
+                }
+            }
+
+            validate {
+                Text("outer before")
+                Text("successful waiting")
+                Text("throwing waiting")
+                Text("outer after")
+            }
+
+            move.value = true
+            advance()
+
+            validate {
+                Text("outer before")
+                Text("successful movable")
+                Text("inner fallback: boom in depth-1 nested movable")
+                Text("outer after")
+            }
+            assertEquals(emptyList(), outerReported)
+            assertEquals(listOf("boom in depth-1 nested movable"), innerReported)
+            verifyConsistent()
+
+            shouldThrow = false
+            assertNotNull(resetInner)()
+            advance()
+
+            validate {
+                Text("outer before")
+                Text("successful movable")
+                Text("throwing host")
+                Text("nested movable before")
+                Text("outer after")
+            }
+            assertEquals(emptyList(), outerReported)
+            assertEquals(listOf("boom in depth-1 nested movable"), innerReported)
+            verifyConsistent()
+        }
+
+    @Test
     fun pausableComposition_initialContainedFailure_composesFallback() = compositionTest {
         val pausedRoot = View().apply { name = "pausedRoot" }
         compose {
