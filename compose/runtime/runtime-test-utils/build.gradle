@@ -63,4 +63,3 @@ androidx {
     description = "Compose runtime test utils shared between runtime and compiler tests."
     kotlinTarget = KotlinTarget.KOTLIN_2_3
 }
-

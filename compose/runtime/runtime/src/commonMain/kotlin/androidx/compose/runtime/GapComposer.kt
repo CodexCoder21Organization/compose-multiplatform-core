@@ -2211,12 +2211,17 @@ internal class GapComposer(
         )
     }
 
+    private var movableContentErrorBoundaryMarker: ErrorBoundaryMarker? = null
+    private var movableContentErrorBoundaryDepth: Int = 0
+
     @OptIn(ExperimentalComposeApi::class)
     private fun invokeMovableContentLambda(
         content: MovableContent<Any?>,
         locals: PersistentCompositionLocalMap,
         parameter: Any?,
         force: Boolean,
+        errorBoundaryMarker: ErrorBoundaryMarker? = null,
+        errorBoundaryDepth: Int = 0,
     ) {
         // Start the movable content group
         startMovableGroup(movableContentKey, content)
@@ -2225,9 +2230,18 @@ internal class GapComposer(
         // All movable content has a composite hash value rooted at the content itself so the hash
         // value doesn't change as the content moves in the tree.
         val savedCompositeKeyHash = compositeKeyHashCode
+        val savedMovableContentErrorBoundaryMarker = movableContentErrorBoundaryMarker
+        val savedMovableContentErrorBoundaryDepth = movableContentErrorBoundaryDepth
+        val activeErrorBoundaryMarker =
+            errorBoundaryMarker ?: savedMovableContentErrorBoundaryMarker
+        val activeErrorBoundaryDepth =
+            if (errorBoundaryMarker != null) errorBoundaryDepth
+            else savedMovableContentErrorBoundaryDepth
 
         try {
             compositeKeyHashCode = CompositeKeyHashCode(movableContentKey)
+            movableContentErrorBoundaryMarker = activeErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = activeErrorBoundaryDepth
 
             if (inserting) writer.markGroup()
 
@@ -2248,6 +2262,11 @@ internal class GapComposer(
 
                 // Create an anchor to the movable group
                 val anchor = writer.anchor(writer.parent(writer.parent))
+                val committedMarker = findCommittedEnclosingErrorBoundaryMarker()
+                val marker = committedMarker ?: activeErrorBoundaryMarker
+                val markerDepth =
+                    if (committedMarker != null) caughtErrorBoundaryDepth
+                    else activeErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2258,6 +2277,8 @@ internal class GapComposer(
                         emptyList(),
                         currentCompositionLocalScope(),
                         null,
+                        marker,
+                        markerDepth,
                     )
                 parentContext.insertMovableContent(reference)
             } else {
@@ -2267,12 +2288,20 @@ internal class GapComposer(
                 providersInvalid = savedProvidersInvalid
             }
         } catch (e: Throwable) {
+            if (errorBoundaryMarker != null) {
+                caughtErrorBoundaryMarker = errorBoundaryMarker
+                caughtErrorBoundaryDepth = errorBoundaryDepth
+            } else {
+                caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            }
             throw e.attachComposeStackTrace { currentStackTrace() }
         } finally {
             // Restore the state back to what is expected by the caller.
             endGroup()
             providerCache = null
             compositeKeyHashCode = savedCompositeKeyHash
+            movableContentErrorBoundaryMarker = savedMovableContentErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = savedMovableContentErrorBoundaryDepth
             endMovableGroup()
         }
     }
@@ -2293,6 +2322,9 @@ internal class GapComposer(
                     // if we finished with error, cleanup more aggressively
                     abortRoot()
                 }
+                // InsertSlots leaves source groups in place while moving their anchors to the
+                // destination. Keep the source table alive through late apply, but never reuse it.
+                forceFreshInsertTable()
             }
         }
     }
@@ -2336,6 +2368,8 @@ internal class GapComposer(
                                             to.locals,
                                             to.parameter,
                                             force = true,
+                                            errorBoundaryMarker = to.errorBoundaryMarker,
+                                            errorBoundaryDepth = to.errorBoundaryDepth,
                                         )
                                     }
                                 }
@@ -2399,6 +2433,8 @@ internal class GapComposer(
                                             to.locals,
                                             to.parameter,
                                             force = true,
+                                            errorBoundaryMarker = to.errorBoundaryMarker,
+                                            errorBoundaryDepth = to.errorBoundaryDepth,
                                         )
                                     }
                                 }
@@ -2539,6 +2575,22 @@ internal class GapComposer(
         return null
     }
 
+    private fun findCommittedEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            var found: ErrorBoundaryMarker? = null
+            var markersAboveFound = 0
+            walkCommittedErrorBoundaryMarkers { marker ->
+                if (found == null) found = marker else markersAboveFound++
+            }
+            caughtErrorBoundaryDepth = markersAboveFound
+            return found
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
     override fun errorBoundaryNestingDepth(): Int {
         var depth = 0
         try {
@@ -2570,6 +2622,10 @@ internal class GapComposer(
                 group = writer.parent(group)
             }
         }
+        walkCommittedErrorBoundaryMarkers(visit)
+    }
+
+    private inline fun walkCommittedErrorBoundaryMarkers(visit: (ErrorBoundaryMarker) -> Unit) {
         if (!reader.closed && reader.size != 0) {
             var group = reader.parent
             while (group >= 0) {
@@ -2814,6 +2870,8 @@ internal class GapComposer(
                     invalidations,
                     currentCompositionLocalScope(group),
                     nestedStates,
+                    null,
+                    0,
                 )
             return reference
         }

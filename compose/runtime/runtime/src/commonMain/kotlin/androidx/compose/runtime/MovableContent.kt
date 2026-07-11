@@ -290,6 +290,8 @@ internal constructor(
     internal var invalidations: List<Pair<RecomposeScopeImpl, Any?>>,
     internal val locals: PersistentCompositionLocalMap,
     internal val nestedReferences: List<MovableContentStateReference>?,
+    internal val errorBoundaryMarker: ErrorBoundaryMarker?,
+    internal val errorBoundaryDepth: Int,
 ) {
     /** Transfer any invalidations that may have accumulated since this reference was created. */
     internal fun transferPendingInvalidations() {

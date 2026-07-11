@@ -1472,6 +1472,22 @@ internal class LinkComposer(
         return null
     }
 
+    private fun findCommittedEnclosingErrorBoundaryMarker(): ErrorBoundaryMarker? {
+        try {
+            var found: ErrorBoundaryMarker? = null
+            var markersAboveFound = 0
+            walkCommittedErrorBoundaryMarkers { marker ->
+                if (found == null) found = marker else markersAboveFound++
+            }
+            caughtErrorBoundaryDepth = markersAboveFound
+            return found
+        } catch (_: Throwable) {
+            // The composer state can be arbitrarily broken while unwinding a composition failure;
+            // failing to find a boundary must never mask the original error.
+        }
+        return null
+    }
+
     override fun errorBoundaryNestingDepth(): Int {
         var depth = 0
         try {
@@ -1497,6 +1513,10 @@ internal class LinkComposer(
                 }
             }
         }
+        walkCommittedErrorBoundaryMarkers(visit)
+    }
+
+    private inline fun walkCommittedErrorBoundaryMarkers(visit: (ErrorBoundaryMarker) -> Unit) {
         val reader = reader
         if (!reader.isClosed && !reader.isEmpty) {
             reader.table.addressSpace.traverseGroupAndParents(reader.parentGroup) { group ->
@@ -1923,6 +1943,8 @@ internal class LinkComposer(
                                                 to.locals,
                                                 to.parameter,
                                                 force = true,
+                                                errorBoundaryMarker = to.errorBoundaryMarker,
+                                                errorBoundaryDepth = to.errorBoundaryDepth,
                                             )
                                         }
                                     }
@@ -1995,6 +2017,8 @@ internal class LinkComposer(
                                                 locals = to.locals,
                                                 parameter = to.parameter,
                                                 force = true,
+                                                errorBoundaryMarker = to.errorBoundaryMarker,
+                                                errorBoundaryDepth = to.errorBoundaryDepth,
                                             )
                                         }
                                     }
@@ -2041,6 +2065,9 @@ internal class LinkComposer(
         }
     }
 
+    private var movableContentErrorBoundaryMarker: ErrorBoundaryMarker? = null
+    private var movableContentErrorBoundaryDepth: Int = 0
+
     @OptIn(ExperimentalComposeApi::class)
     @InternalComposeApi
     private fun invokeMovableContentLambda(
@@ -2048,6 +2075,8 @@ internal class LinkComposer(
         locals: PersistentCompositionLocalMap,
         parameter: Any?,
         force: Boolean,
+        errorBoundaryMarker: ErrorBoundaryMarker? = null,
+        errorBoundaryDepth: Int = 0,
     ) {
         // Start the movable content group
         startMovableGroup(movableContentKey, content)
@@ -2056,9 +2085,18 @@ internal class LinkComposer(
         // All movable content has a composite hash value rooted at the content itself so the hash
         // value doesn't change as the content moves in the tree.
         val savedCompositeKeyHash = compositeKeyHashCode
+        val savedMovableContentErrorBoundaryMarker = movableContentErrorBoundaryMarker
+        val savedMovableContentErrorBoundaryDepth = movableContentErrorBoundaryDepth
+        val activeErrorBoundaryMarker =
+            errorBoundaryMarker ?: savedMovableContentErrorBoundaryMarker
+        val activeErrorBoundaryDepth =
+            if (errorBoundaryMarker != null) errorBoundaryDepth
+            else savedMovableContentErrorBoundaryDepth
 
         try {
             compositeKeyHashCode = CompositeKeyHashCode(movableContentKey)
+            movableContentErrorBoundaryMarker = activeErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = activeErrorBoundaryDepth
 
             if (inserting) builder.addFlags(flags = IsMovableContentFlag)
 
@@ -2079,6 +2117,11 @@ internal class LinkComposer(
 
                 val address = builder.parent(builder.parentGroup)
                 val anchor = builder.table.addressSpace.anchorOfAddress(address)
+                val committedMarker = findCommittedEnclosingErrorBoundaryMarker()
+                val marker = committedMarker ?: activeErrorBoundaryMarker
+                val markerDepth =
+                    if (committedMarker != null) caughtErrorBoundaryDepth
+                    else activeErrorBoundaryDepth
                 val reference =
                     MovableContentStateReference(
                         content,
@@ -2089,6 +2132,8 @@ internal class LinkComposer(
                         emptyList(),
                         currentCompositionLocalScope(),
                         null,
+                        marker,
+                        markerDepth,
                     )
                 parentContext.insertMovableContent(reference)
             } else {
@@ -2104,12 +2149,20 @@ internal class LinkComposer(
                 providersInvalid = savedProvidersInvalid
             }
         } catch (e: Throwable) {
+            if (errorBoundaryMarker != null) {
+                caughtErrorBoundaryMarker = errorBoundaryMarker
+                caughtErrorBoundaryDepth = errorBoundaryDepth
+            } else {
+                caughtErrorBoundaryMarker = findCommittedEnclosingErrorBoundaryMarker()
+            }
             throw e.attachComposeStackTrace { currentStackTrace() }
         } finally {
             // Restore the state back to what is expected by the caller.
             endGroup()
             providerCache = null
             compositeKeyHashCode = savedCompositeKeyHash
+            movableContentErrorBoundaryMarker = savedMovableContentErrorBoundaryMarker
+            movableContentErrorBoundaryDepth = savedMovableContentErrorBoundaryDepth
             endMovableGroup()
         }
     }
@@ -2344,6 +2397,8 @@ internal class LinkComposer(
                     invalidations,
                     currentCompositionLocalScope(group),
                     nestedStates,
+                    null,
+                    0,
                 )
             return reference
         }
