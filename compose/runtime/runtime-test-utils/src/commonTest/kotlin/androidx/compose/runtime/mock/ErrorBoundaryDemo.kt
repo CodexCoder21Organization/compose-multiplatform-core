@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import kotlin.test.assertEquals
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
@@ -36,17 +37,23 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalComposeRuntimeApi::class, ExperimentalCoroutinesApi::class)
-internal fun runErrorBoundaryDemoMain(target: String) {
-    runTest { withContext(TestMonotonicFrameClock(this)) { runErrorBoundaryDemo(target) } }
+internal fun assertErrorBoundaryDemoTranscript(target: String, expected: String) {
+    runTest {
+        val actual = withContext(TestMonotonicFrameClock(this)) { runErrorBoundaryDemo(target) }
+        assertEquals(expected, actual)
+    }
 }
 
 @OptIn(ExperimentalComposeRuntimeApi::class, ExperimentalCoroutinesApi::class)
-private suspend fun TestScope.runErrorBoundaryDemo(target: String) {
-    coroutineScope { runErrorBoundaryDemo(target, this@runErrorBoundaryDemo) }
+private suspend fun TestScope.runErrorBoundaryDemo(target: String): String = coroutineScope {
+    runErrorBoundaryDemo(target, this@runErrorBoundaryDemo)
 }
 
 @OptIn(ExperimentalComposeRuntimeApi::class, ExperimentalCoroutinesApi::class)
-private suspend fun CoroutineScope.runErrorBoundaryDemo(target: String, testScope: TestScope) {
+private suspend fun CoroutineScope.runErrorBoundaryDemo(
+    target: String,
+    testScope: TestScope,
+): String {
     val recomposer = Recomposer(coroutineContext)
     val recomposerJob = launch { recomposer.runRecomposeAndApplyChanges() }
     val root = View().also { it.name = "root" }
@@ -55,6 +62,7 @@ private suspend fun CoroutineScope.runErrorBoundaryDemo(target: String, testScop
     var failContent by mutableStateOf(true)
     var fallbackScope: ErrorBoundaryScope? = null
     var boundaryHandle: ErrorBoundaryHandle? = null
+    val transcript = StringBuilder()
 
     try {
         composition.setContent {
@@ -70,26 +78,22 @@ private suspend fun CoroutineScope.runErrorBoundaryDemo(target: String, testScop
             }
         }
 
-        root.requireText("fallback: demo composition boom")
-        printTree("composition throw", root)
+        transcript.appendTree("composition throw", root)
 
         failContent = false
         checkNotNull(fallbackScope) { "ErrorBoundary fallback scope was not captured" }.reset()
         testScope.advanceFrame(recomposer)
 
-        root.requireText("recovered content")
-        root.requireAbsent("fallback: demo composition boom")
-        printTree("reset recovery", root)
+        transcript.appendTree("reset recovery", root)
 
         checkNotNull(boundaryHandle) { "LocalErrorBoundary handle was not captured" }
             .throwToBoundary(IllegalStateException("demo forwarded boom"))
         testScope.advanceFrame(recomposer)
 
-        root.requireText("fallback: demo forwarded boom")
-        root.requireAbsent("recovered content")
-        printTree("throwToBoundary", root)
+        transcript.appendTree("throwToBoundary", root)
 
-        println("DEMO OK: $target")
+        transcript.appendLine("DEMO OK: $target")
+        return transcript.toString()
     } finally {
         composition.dispose()
         recomposer.cancel()
@@ -106,20 +110,7 @@ private fun TestScope.advanceFrame(recomposer: Recomposer) {
     check(!recomposer.hasPendingWork) { "Recomposer still has pending work after advancing" }
 }
 
-private fun printTree(label: String, root: View) {
-    println("[$label]")
-    print(root.toFmtString())
+private fun StringBuilder.appendTree(label: String, root: View) {
+    appendLine("[$label]")
+    append(root.toFmtString())
 }
-
-private fun View.requireText(expected: String) {
-    val actual = textValues()
-    check(expected in actual) { "Expected text '$expected' in $actual\n${toFmtString()}" }
-}
-
-private fun View.requireAbsent(unexpected: String) {
-    val actual = textValues()
-    check(unexpected !in actual) { "Unexpected text '$unexpected' in $actual\n${toFmtString()}" }
-}
-
-private fun View.textValues(): List<String> =
-    listOfNotNull(text) + children.flatMap { it.textValues() }

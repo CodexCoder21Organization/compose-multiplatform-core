@@ -24,7 +24,7 @@ internal actual fun invokeComposable(composer: Composer, composable: @Composable
     realFn(composer, 1)
 }
 
-internal actual fun logError(message: String, e: Throwable) {
+internal actual fun platformLogError(message: String, e: Throwable) {
     println(message)
     println(e.stackTraceToString())
 }

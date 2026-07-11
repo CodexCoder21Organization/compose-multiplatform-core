@@ -16,7 +16,7 @@
 
 package androidx.compose.runtime.internal
 
-internal actual fun logError(message: String, e: Throwable) {
+internal actual fun platformLogError(message: String, e: Throwable) {
     System.err.println(message)
     e.printStackTrace(System.err)
 }

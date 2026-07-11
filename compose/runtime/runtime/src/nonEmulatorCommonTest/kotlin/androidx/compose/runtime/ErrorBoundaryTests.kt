@@ -16,6 +16,7 @@
 
 package androidx.compose.runtime
 
+import androidx.compose.runtime.internal.logErrorTestHandler
 import androidx.compose.runtime.mock.Linear
 import androidx.compose.runtime.mock.MockViewListValidator
 import androidx.compose.runtime.mock.MockViewValidator
@@ -346,6 +347,61 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun onErrorThrowing_repeatedContainmentsLogExactFailures() = compositionTest {
+        val shouldFail = mutableStateOf(true)
+        var reset: (() -> Unit)? = null
+        var callbackInvocations = 0
+        val callbackFailures = mutableListOf<Throwable>()
+        val logged = mutableListOf<Pair<String, Throwable>>()
+        val previousHandler = logErrorTestHandler
+        logErrorTestHandler = { message, error -> logged += message to error }
+        try {
+            compose {
+                ErrorBoundary(
+                    fallback = {
+                        reset = ::reset
+                        Text("fallback: ${error.message}")
+                    },
+                    onError = { error, _ ->
+                        callbackInvocations++
+                        val callbackFailure =
+                            IllegalStateException("callback boom $callbackInvocations", error)
+                        callbackFailures += callbackFailure
+                        throw callbackFailure
+                    },
+                ) {
+                    Text("content")
+                    if (shouldFail.value) error("content boom $callbackInvocations")
+                }
+            }
+
+            repeat(3) { containment ->
+                validate { Text("fallback: content boom $containment") }
+                assertEquals(containment + 1, callbackInvocations)
+                assertEquals(
+                    List(containment + 1) {
+                        "ErrorBoundary onError callback threw while reporting a contained error."
+                    },
+                    logged.map { it.first },
+                )
+                assertEquals(callbackFailures, logged.map { it.second })
+
+                if (containment < 2) {
+                    shouldFail.value = false
+                    assertNotNull(reset)()
+                    advance()
+                    validate { Text("content") }
+                    shouldFail.value = true
+                    advance()
+                }
+            }
+            verifyConsistent()
+        } finally {
+            logErrorTestHandler = previousHandler
+        }
+    }
+
+    @Test
     fun sideEffectThrow_underBoundary_isNotContained() = compositionTest {
         val e =
             assertFailsWith<IllegalStateException> {
@@ -634,6 +690,58 @@ class ErrorBoundaryTests {
             root.flattenedText(),
         )
         assertEquals(listOf("depth 7: boom 7"), reported)
+        verifyConsistent()
+    }
+
+    @Test
+    fun collidingCompositeKeyHashes_attributeRecursiveBoundariesByDepth() = compositionTest {
+        val failingDepth = mutableStateOf<Int?>(null)
+        val hashes = mutableMapOf<Int, CompositeKeyHashCode>()
+        val resets = mutableMapOf<Int, () -> Unit>()
+        val reported = mutableListOf<String>()
+
+        @Composable
+        fun Nested(depth: Int) {
+            ErrorBoundary(
+                fallback = {
+                    resets[depth] = ::reset
+                    Text("fallback $depth: ${error.message}")
+                },
+                onError = { error, _ -> reported += "depth $depth: ${error.message}" },
+            ) {
+                hashes[depth] = currentCompositeKeyHashCode
+                Text("content $depth")
+                if (failingDepth.value == depth) error("boom $depth")
+                if (depth > 0) Nested(depth - 1)
+            }
+        }
+
+        compose { Nested(160) }
+
+        val collision =
+            assertNotNull(
+                hashes.entries.groupBy { it.value }.values.firstOrNull { it.size >= 2 },
+                "the recursive same-call-site chain must contain a real composite-key collision",
+            )
+        val firstDepth = collision[0].key
+        val secondDepth = collision[1].key
+        assertEquals(hashes[firstDepth], hashes[secondDepth])
+
+        for (depth in listOf(firstDepth, secondDepth)) {
+            failingDepth.value = depth
+            advance()
+            assertEquals("fallback $depth: boom $depth", root.flattenedText().last())
+            assertEquals("depth $depth: boom $depth", reported.last())
+
+            failingDepth.value = null
+            assertNotNull(resets[depth])()
+            advance()
+            assertEquals("content 0", root.flattenedText().last())
+        }
+        assertEquals(
+            listOf("depth $firstDepth: boom $firstDepth", "depth $secondDepth: boom $secondDepth"),
+            reported,
+        )
         verifyConsistent()
     }
 
@@ -1705,6 +1813,43 @@ class ErrorBoundaryTests {
         }
 
     @Test
+    fun nestedMovableReferenceFromAbandonedDeferredBatch_isDiscarded() = compositionTest {
+        val insertMovables = mutableStateOf(false)
+        val reported = mutableListOf<String>()
+        val nestedChild = movableContentOf { Text("nested child") }
+        val nestingChild = movableContentOf {
+            Text("nesting child")
+            nestedChild()
+        }
+        val throwingChild = movableContentOf {
+            Text("throwing child")
+            error("boom after nested reference")
+        }
+
+        compose {
+            ErrorBoundary(
+                fallback = { FallbackContent() },
+                onError = { error, _ -> reported += error.message ?: "" },
+            ) {
+                if (insertMovables.value) {
+                    nestingChild()
+                    throwingChild()
+                } else {
+                    Text("waiting")
+                }
+            }
+        }
+
+        validate { Text("waiting") }
+        insertMovables.value = true
+        advance()
+
+        validate { FallbackText(IllegalStateException("boom after nested reference")) }
+        assertEquals(listOf("boom after nested reference"), reported)
+        verifyConsistent()
+    }
+
+    @Test
     fun nestedMovableContent_containedAfterSuccessfulInsert_keepsSibling() = compositionTest {
         val move = mutableStateOf(false)
         val reported = mutableListOf<String>()
@@ -1837,6 +1982,82 @@ class ErrorBoundaryTests {
         }
 
     @Test
+    fun depth2NestedMovableContent_attributesToInnerBoundary() = compositionTest {
+        val insert = mutableStateOf(false)
+        val innerReported = mutableListOf<String>()
+        val outerReported = mutableListOf<String>()
+        val leaf = movableContentOf {
+            Text("leaf")
+            if (insert.value) error("boom at movable depth 2")
+        }
+        val middle = movableContentOf {
+            Text("middle")
+            leaf()
+        }
+        val host = movableContentOf {
+            Text("host")
+            middle()
+        }
+
+        compose {
+            ErrorBoundary(
+                fallback = { Text("outer fallback: ${error.message}") },
+                onError = { error, _ -> outerReported += error.message ?: "" },
+            ) {
+                ErrorBoundary(
+                    fallback = { Text("inner fallback: ${error.message}") },
+                    onError = { error, _ -> innerReported += error.message ?: "" },
+                ) {
+                    if (insert.value) host() else Text("waiting")
+                }
+            }
+        }
+
+        validate { Text("waiting") }
+        insert.value = true
+        advance()
+
+        validate { Text("inner fallback: boom at movable depth 2") }
+        assertEquals(listOf("boom at movable depth 2"), innerReported)
+        assertEquals(emptyList(), outerReported)
+        verifyConsistent()
+    }
+
+    @Test
+    fun innerOnErrorNotification_survivesPassAbandonedByOuterSiblingFailure() = compositionTest {
+        val failInner = mutableStateOf(false)
+        val failOuterSibling = mutableStateOf(false)
+        val innerReported = mutableListOf<String>()
+        val outerReported = mutableListOf<String>()
+
+        compose {
+            ErrorBoundary(
+                fallback = { Text("outer fallback: ${error.message}") },
+                onError = { error, _ -> outerReported += error.message ?: "" },
+            ) {
+                ErrorBoundary(
+                    fallback = { Text("inner fallback: ${error.message}") },
+                    onError = { error, _ -> innerReported += error.message ?: "" },
+                ) {
+                    Text("inner content")
+                    if (failInner.value) error("inner boom")
+                }
+                if (failOuterSibling.value) error("outer sibling boom")
+            }
+        }
+
+        validate { Text("inner content") }
+        failInner.value = true
+        failOuterSibling.value = true
+        advance()
+
+        validate { Text("outer fallback: outer sibling boom") }
+        assertEquals(listOf("inner boom"), innerReported)
+        assertEquals(listOf("outer sibling boom"), outerReported)
+        verifyConsistent()
+    }
+
+    @Test
     fun pausableComposition_initialContainedFailure_composesFallback() = compositionTest {
         val pausedRoot = View().apply { name = "pausedRoot" }
         compose {
@@ -1886,10 +2107,41 @@ class ErrorBoundaryTests {
             assertFailsWith<IllegalStateException> {
                 compose { Nested(ErrorBoundaryHardContainmentCap + 8) }
             }
-        assertTrue(
-            e.message.orEmpty().contains("giving up on the re-attempt loop"),
-            "expected the hard-cap runtime error, but was: ${e.message}",
+        assertEquals(
+            "Compose Runtime internal error. Composition failed 64 times with every failure " +
+                "contained to an error boundary; giving up on the re-attempt loop.",
+            e.message,
         )
+    }
+
+    @Test
+    fun boundaryInsideNewMovableInsertion_doesNotContainInsertionFailure() = compositionTest {
+        val original = IllegalStateException("new movable insertion boom")
+        var fallbackComposed = false
+        val reported = mutableListOf<Throwable>()
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                compose {
+                    val child = remember {
+                        movableContentOf {
+                            ErrorBoundary(
+                                fallback = {
+                                    fallbackComposed = true
+                                    Text("inner fallback")
+                                },
+                                onError = { error, _ -> reported += error },
+                            ) {
+                                throw original
+                            }
+                        }
+                    }
+                    child()
+                }
+            }
+
+        assertSame(original, thrown)
+        assertFalse(fallbackComposed)
+        assertEquals(emptyList(), reported)
     }
 
     @Test

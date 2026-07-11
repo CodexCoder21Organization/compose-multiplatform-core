@@ -1365,6 +1365,16 @@ public class Recomposer(effectCoroutineContext: CoroutineContext) : CompositionC
 
     private fun abandonContainedMovableContentInserts(compositions: List<ControlledComposition>) {
         compositions.fastForEach { it.abandonChanges() }
+        // Inserting one movable content item can enqueue nested movable references globally before
+        // a later item in the same composition's batch fails. abandonChanges() retires the insert
+        // table that owns those references, so allowing them to survive in the global queue would
+        // later dereference anchors into that retired table.
+        synchronized(stateLock) {
+            val iterator = movableContentAwaitingInsert.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().composition in compositions) iterator.remove()
+            }
+        }
     }
 
     private fun performRecompose(

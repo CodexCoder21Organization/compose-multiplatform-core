@@ -21,4 +21,11 @@ import androidx.compose.runtime.Composer
 
 internal expect fun invokeComposable(composer: Composer, composable: @Composable () -> Unit)
 
-internal expect fun logError(message: String, e: Throwable)
+internal var logErrorTestHandler: ((String, Throwable) -> Unit)? = null
+
+internal fun logError(message: String, e: Throwable) {
+    val handler = logErrorTestHandler
+    if (handler != null) handler(message, e) else platformLogError(message, e)
+}
+
+internal expect fun platformLogError(message: String, e: Throwable)

@@ -36,8 +36,8 @@ androidXMultiplatform {
     ios()
     tvos()
     watchos()
-    js()
-    wasmJs()
+    js { nodejs() }
+    wasmJs { nodejs() }
 
     defaultPlatform(PlatformIdentifier.ANDROID)
 

@@ -20,6 +20,6 @@ import android.util.Log
 
 private const val LogTag = "ComposeInternal"
 
-internal actual fun logError(message: String, e: Throwable) {
+internal actual fun platformLogError(message: String, e: Throwable) {
     Log.e(LogTag, message, e)
 }
