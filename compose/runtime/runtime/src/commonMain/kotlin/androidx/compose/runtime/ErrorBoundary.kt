@@ -129,14 +129,15 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * toward this guard: they are raised by work that ran after a successful composition, so their
  * recurrence is bounded by their own triggers.
  *
- * [onError] is invoked once per contained error — including an error whose boundary immediately
- * recovered through [resetKeys] or a reset in the same pass, including re-containment of the same
- * [Throwable] instance on a later failure, and including multiple errors accepted before the
- * boundary's next commit. When more than one error is accepted before the boundary commits (for
- * example a contained throw and a concurrently forwarded error), the latest error is the one
- * displayed by [fallback]. If [onError] itself throws, the runtime logs that callback failure and
- * keeps the boundary/recomposer state usable; `onError` is a reporting hook and its own failure is
- * not re-contained by the boundary.
+ * When non-null, [onError] is invoked once per contained error — including an error whose boundary
+ * immediately recovered through [resetKeys] or a reset in the same pass, including re-containment
+ * of the same [Throwable] instance on a later failure, and including multiple errors accepted
+ * before the boundary's next commit. Errors accepted while [onError] is null are not retained and
+ * are not replayed if a callback is supplied by a later recomposition. When more than one error is
+ * accepted before the boundary commits (for example a contained throw and a concurrently forwarded
+ * error), the latest error is the one displayed by [fallback]. If [onError] itself throws, the
+ * runtime logs that callback failure and keeps the boundary/recomposer state usable; `onError` is a
+ * reporting hook and its own failure is not re-contained by the boundary.
  *
  * Same-call-site sibling boundaries created by ordinary repeated composition receive distinct
  * effective composite key hashes and keep their contained error states independent. As with other
@@ -150,8 +151,10 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  *
  * @param fallback Composed in place of [content] while the boundary contains an error. Receives an
  *   [ErrorBoundaryScope] exposing the contained error and a reset operation.
- * @param onError Invoked after the boundary contains an error, with the error and a
- *   [CompositionErrorInfo]. Intended for logging; invoked as a commit-phase side effect.
+ * @param onError When non-null, invoked after the boundary contains an error, with the error and a
+ *   [CompositionErrorInfo]. Intended for logging; invoked as a commit-phase side effect. Errors
+ *   accepted while this is null are discarded for reporting and are not replayed to a callback
+ *   supplied by a later recomposition.
  * @param resetKeys When any element changes (by [Array.contentEquals]) while the boundary is
  *   showing its fallback, the boundary automatically discards its error state and re-attempts
  *   [content], subject to the bounded re-attempt guard. Key these to the data whose change makes a
@@ -173,6 +176,7 @@ public fun ErrorBoundary(
     state.keyHash = keyHash
     state.depth = composer.errorBoundaryNestingDepth()
     state.recomposeScope = currentRecomposeScope
+    state.updateOnErrorAvailability(onError != null)
 
     // Pick up an error the runtime contained for this boundary position, then any signals raised
     // from outside composition (throwToBoundary / reset), then apply resetKeys-driven auto-reset.
@@ -376,11 +380,29 @@ internal class ErrorBoundaryState : RememberObserver {
     val hasPendingNotifications: Boolean
         get() = pendingErrorNotifications.isNotEmpty() || pendingLoopNotification != null
 
+    /**
+     * Updates whether reporting is active and discards reports when no callback can consume them.
+     */
+    fun updateOnErrorAvailability(available: Boolean) {
+        if (!available) {
+            pendingErrorNotifications.clear()
+            pendingLoopNotification = null
+        }
+        isOnErrorAvailable = available
+    }
+
+    @JvmField var isOnErrorAvailable: Boolean = false
+
     private fun acceptError(accepted: Throwable) {
         error = accepted
         errorGeneration++
-        pendingErrorNotifications +=
-            ErrorBoundaryNotification(accepted, CompositionErrorInfo(composeStackTraceOf(accepted)))
+        if (isOnErrorAvailable) {
+            pendingErrorNotifications +=
+                ErrorBoundaryNotification(
+                    accepted,
+                    CompositionErrorInfo(composeStackTraceOf(accepted)),
+                )
+        }
     }
 
     /**
@@ -430,7 +452,7 @@ internal class ErrorBoundaryState : RememberObserver {
     private fun autoReset() {
         if (failedAttempts <= MaxConsecutiveAutoResetAttempts) {
             clearErrorForRetry(clearFailures = false)
-        } else if (pendingLoopNotification == null) {
+        } else if (isOnErrorAvailable && pendingLoopNotification == null) {
             pendingLoopNotification = error
         }
     }

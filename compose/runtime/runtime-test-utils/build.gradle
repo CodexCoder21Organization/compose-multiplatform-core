@@ -55,24 +55,6 @@ androidXMultiplatform {
     }
 }
 
-kotlin {
-    js {
-        nodejs()
-        binaries.executable()
-    }
-    wasmJs {
-        nodejs()
-        binaries.executable()
-    }
-}
-
-tasks.register("runErrorBoundaryDemoJvm", JavaExec) {
-    def compilation = kotlin.targets["desktop"].compilations["main"]
-    dependsOn(compilation.compileTaskProvider)
-    mainClass = "androidx.compose.runtime.mock.ErrorBoundaryDemo_desktopKt"
-    classpath = compilation.output.allOutputs + compilation.runtimeDependencyFiles
-}
-
 androidx {
     // This library is consumed by Kotlin CI to run Compose runtime test with the latest compiler.
     name = "Compose Internal Test Utils"

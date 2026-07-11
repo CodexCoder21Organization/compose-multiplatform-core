@@ -178,6 +178,66 @@ class ErrorBoundaryTests {
     }
 
     @Test
+    fun errorsAcceptedWithoutOnError_areNotReplayedWhenCallbackIsAdded() = compositionTest {
+        val callbackEnabled = mutableStateOf(false)
+        val shouldFail = mutableStateOf(true)
+        val failureMessage = mutableStateOf("initial boom")
+        val reported = mutableListOf<String>()
+        var capturedReset: (() -> Unit)? = null
+        var boundaryHandle: ErrorBoundaryHandle? = null
+        compose {
+            ErrorBoundary(
+                fallback = {
+                    capturedReset = ::reset
+                    Text("fallback")
+                },
+                onError =
+                    if (callbackEnabled.value) {
+                        { error, _ -> reported += error.message ?: "" }
+                    } else {
+                        null
+                    },
+            ) {
+                boundaryHandle = LocalErrorBoundary.current
+                Text("content")
+                if (shouldFail.value) error(failureMessage.value)
+            }
+        }
+
+        validate { Text("fallback") }
+        assertTrue(reported.isEmpty())
+
+        val capturedHandle = assertNotNull(boundaryHandle)
+        repeat(3) { index ->
+            capturedHandle.throwToBoundary(IllegalStateException("forwarded boom $index"))
+            advance()
+            validate { Text("fallback") }
+        }
+
+        callbackEnabled.value = true
+        advance()
+
+        validate { Text("fallback") }
+        assertTrue(
+            reported.isEmpty(),
+            "adding onError must not replay errors accepted while no callback was registered",
+        )
+
+        shouldFail.value = false
+        assertNotNull(capturedReset)()
+        advance()
+        validate { Text("content") }
+
+        failureMessage.value = "new boom"
+        shouldFail.value = true
+        advance()
+
+        validate { Text("fallback") }
+        assertEquals(listOf("new boom"), reported)
+        verifyConsistent()
+    }
+
+    @Test
     fun onErrorReportedPerContainment_evenForTheSameThrowableInstance() = compositionTest {
         val reported = mutableListOf<Throwable>()
         val thrown = IllegalStateException("recurring boom")
@@ -948,61 +1008,60 @@ class ErrorBoundaryTests {
     }
 
     @Test
-    fun throwToBoundary_onStaleHandleAfterBoundaryLeavesComposition_isIgnored() =
-        compositionTest {
-            val showBoundary = mutableStateOf(true)
-            var capturedHandle: ErrorBoundaryHandle? = null
-            var compositionCount = 0
-            compose {
-                compositionCount++
-                Linear {
-                    if (showBoundary.value) {
-                        ErrorBoundary(fallback = { FallbackContent() }) {
-                            capturedHandle = LocalErrorBoundary.current
-                            Text("content")
-                        }
+    fun throwToBoundary_onStaleHandleAfterBoundaryLeavesComposition_isIgnored() = compositionTest {
+        val showBoundary = mutableStateOf(true)
+        var capturedHandle: ErrorBoundaryHandle? = null
+        var compositionCount = 0
+        compose {
+            compositionCount++
+            Linear {
+                if (showBoundary.value) {
+                    ErrorBoundary(fallback = { FallbackContent() }) {
+                        capturedHandle = LocalErrorBoundary.current
+                        Text("content")
                     }
-                    Text("sibling")
                 }
+                Text("sibling")
             }
-
-            validate {
-                Linear {
-                    Text("content")
-                    Text("sibling")
-                }
-            }
-            val staleHandle = assertNotNull(capturedHandle)
-
-            showBoundary.value = false
-            advance()
-            validate { Linear { Text("sibling") } }
-            val compositionCountAfterRemoval = compositionCount
-
-            staleHandle.throwToBoundary(IllegalStateException("stale"))
-            val changes = advanceCount()
-            assertEquals(
-                0,
-                changes,
-                "throwToBoundary on a forgotten boundary handle must not schedule changes",
-            )
-            assertEquals(
-                compositionCountAfterRemoval,
-                compositionCount,
-                "throwToBoundary on a forgotten boundary handle must not recompose the parent",
-            )
-            validate { Linear { Text("sibling") } }
-
-            showBoundary.value = true
-            advance()
-            validate {
-                Linear {
-                    Text("content")
-                    Text("sibling")
-                }
-            }
-            verifyConsistent()
         }
+
+        validate {
+            Linear {
+                Text("content")
+                Text("sibling")
+            }
+        }
+        val staleHandle = assertNotNull(capturedHandle)
+
+        showBoundary.value = false
+        advance()
+        validate { Linear { Text("sibling") } }
+        val compositionCountAfterRemoval = compositionCount
+
+        staleHandle.throwToBoundary(IllegalStateException("stale"))
+        val changes = advanceCount()
+        assertEquals(
+            0,
+            changes,
+            "throwToBoundary on a forgotten boundary handle must not schedule changes",
+        )
+        assertEquals(
+            compositionCountAfterRemoval,
+            compositionCount,
+            "throwToBoundary on a forgotten boundary handle must not recompose the parent",
+        )
+        validate { Linear { Text("sibling") } }
+
+        showBoundary.value = true
+        advance()
+        validate {
+            Linear {
+                Text("content")
+                Text("sibling")
+            }
+        }
+        verifyConsistent()
+    }
 
     @Test
     fun sideEffectThrow_underBoundaryEscapesWithoutTrippingBoundary() = compositionTest {

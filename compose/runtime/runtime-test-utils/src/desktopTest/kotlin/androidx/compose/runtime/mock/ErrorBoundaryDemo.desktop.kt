@@ -16,6 +16,11 @@
 
 package androidx.compose.runtime.mock
 
-fun main() {
-    runErrorBoundaryDemoMain("wasm")
+import kotlin.test.Test
+
+class ErrorBoundaryDemoTest {
+    @Test
+    fun runs() {
+        runErrorBoundaryDemoMain("jvm")
+    }
 }

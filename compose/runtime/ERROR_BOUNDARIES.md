@@ -102,16 +102,19 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   composition may still be called, but it has no composition to schedule: it does not
   invalidate stale scopes, does not recompose unrelated content, and does not keep the
   forgotten composition graph reachable.
-- **`onError` is per-containment.** Every accepted error is appended to the boundary's
-  pending-notification queue and dispatched in acceptance order from the boundary's commit
-  `SideEffect`; delivery is not keyed by throwable identity. Re-containing the *same*
-  `Throwable` instance on a later failure is therefore reported again, and a containment whose
-  boundary immediately recovered (a `resetKeys` change consumed in the same pass) is still
-  reported. If more than one error is accepted before the boundary commits, the latest error is
-  displayed by the fallback and every accepted error is reported once. The monotonic error
-  generation only gives each newly displayed fallback a fresh `remember` scope identity. If the
-  `onError` callback itself throws, the callback failure is logged and does not re-enter
-  containment or poison the recomposer; `onError` is a best-effort reporting hook.
+- **`onError` is a non-replaying, per-containment reporting hook.** While a callback is
+  registered, every accepted error is appended to the boundary's pending-notification queue
+  and dispatched in acceptance order from the boundary's commit `SideEffect`; delivery is not
+  keyed by throwable identity. Re-containing the *same* `Throwable` instance on a later failure
+  is therefore reported again, and a containment whose boundary immediately recovered (a
+  `resetKeys` change consumed in the same pass) is still reported. If more than one error is
+  accepted before the boundary commits, the latest error is displayed by the fallback and every
+  accepted error is reported once. Errors accepted while `onError` is null are not queued or
+  otherwise retained for reporting and are not replayed if a callback is supplied by a later
+  recomposition; `onError` is a reporting hook, not an error log. The monotonic error generation
+  only gives each newly displayed fallback a fresh `remember` scope identity. If the callback
+  itself throws, the callback failure is logged and does not re-enter containment or poison the
+  recomposer.
 - **Identity.** A boundary's contained-error record is keyed by its effective composite key
   hash **plus its marker-nesting depth**. Same-call-site siblings created by ordinary repeated
   composition receive distinct effective composite hashes and contain independently; use
@@ -216,7 +219,8 @@ runs the suite under **both** composer implementations (gap buffer and link buff
 initial-composition containment, recomposition containment with sibling preservation,
 per-containment `onError` (exactly once per containment, again for the same `Throwable`
 instance, still delivered when `resetKeys` recovery lands in the same pass, and delivered
-for every accepted error when a forwarded error races a composition-time failure),
+for every accepted error when a forwarded error races a composition-time failure; errors
+accepted while the callback is null are not replayed when one is registered later),
 uncontained propagation without a boundary, fallback escalation to the outer boundary,
 nested boundaries, deep-throw attribution without re-running the protected content,
 explicit and fallback-issued (guarded) resets, `resetKeys` recovery incl. guard clearing
@@ -238,3 +242,15 @@ groups inside protected content not colliding with the boundary marker key, paus
 composition containment, diagnostic composition stack traces in `CompositionErrorInfo`,
 re-containment after recovery, deferred movable-content insertion failures under an
 already-enclosing boundary, and transparency of a healthy boundary.
+
+The runnable demo is test-only so it does not add demo classes or executable output to the
+published `runtime-test-utils` library. Run it on each target from the repository root:
+
+```shell
+./gradlew :compose:runtime:runtime-test-utils:desktopTest \
+  --tests 'androidx.compose.runtime.mock.ErrorBoundaryDemoTest'
+./gradlew :compose:runtime:runtime-test-utils:jsNodeTest \
+  --tests 'androidx.compose.runtime.mock.ErrorBoundaryDemoTest'
+./gradlew :compose:runtime:runtime-test-utils:wasmJsNodeTest \
+  --tests 'androidx.compose.runtime.mock.ErrorBoundaryDemoTest'
+```
