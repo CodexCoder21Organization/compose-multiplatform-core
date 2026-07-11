@@ -2322,6 +2322,9 @@ internal class GapComposer(
                     // if we finished with error, cleanup more aggressively
                     abortRoot()
                 }
+                // InsertSlots leaves source groups in place while moving their anchors to the
+                // destination. Keep the source table alive through late apply, but never reuse it.
+                forceFreshInsertTable()
             }
         }
     }
