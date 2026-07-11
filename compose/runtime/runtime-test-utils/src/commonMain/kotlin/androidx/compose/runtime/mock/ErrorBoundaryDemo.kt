@@ -78,6 +78,7 @@ private suspend fun CoroutineScope.runErrorBoundaryDemo(target: String, testScop
         testScope.advanceFrame(recomposer)
 
         root.requireText("recovered content")
+        root.requireAbsent("fallback: demo composition boom")
         printTree("reset recovery", root)
 
         checkNotNull(boundaryHandle) { "LocalErrorBoundary handle was not captured" }
@@ -85,6 +86,7 @@ private suspend fun CoroutineScope.runErrorBoundaryDemo(target: String, testScop
         testScope.advanceFrame(recomposer)
 
         root.requireText("fallback: demo forwarded boom")
+        root.requireAbsent("recovered content")
         printTree("throwToBoundary", root)
 
         println("DEMO OK: $target")
@@ -112,6 +114,11 @@ private fun printTree(label: String, root: View) {
 private fun View.requireText(expected: String) {
     val actual = textValues()
     check(expected in actual) { "Expected text '$expected' in $actual\n${toFmtString()}" }
+}
+
+private fun View.requireAbsent(unexpected: String) {
+    val actual = textValues()
+    check(unexpected !in actual) { "Unexpected text '$unexpected' in $actual\n${toFmtString()}" }
 }
 
 private fun View.textValues(): List<String> =
