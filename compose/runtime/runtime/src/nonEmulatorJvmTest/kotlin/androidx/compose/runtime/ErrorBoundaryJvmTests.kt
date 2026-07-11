@@ -16,8 +16,8 @@
 
 package androidx.compose.runtime
 
-import androidx.compose.runtime.mock.Text
 import androidx.compose.runtime.mock.ComposerToUse
+import androidx.compose.runtime.mock.Text
 import androidx.compose.runtime.mock.compositionTest
 import androidx.compose.runtime.mock.validate
 import java.lang.ref.WeakReference
@@ -41,9 +41,7 @@ class ErrorBoundaryJvmTests {
             fun createAndDisposeComposition(): WeakReference<Composition> {
                 val composition = Composition(UnitApplier(), recomposer)
                 composition.setContent {
-                    ErrorBoundary(fallback = {}) {
-                        retainedHandle = LocalErrorBoundary.current
-                    }
+                    ErrorBoundary(fallback = {}) { retainedHandle = LocalErrorBoundary.current }
                 }
                 val weakComposition = WeakReference(composition)
                 composition.dispose()
@@ -60,6 +58,53 @@ class ErrorBoundaryJvmTests {
 
             retainedHandle?.throwToBoundary(IllegalStateException("stale"))
         }
+    }
+
+    @Test
+    fun forgottenBoundaryHandleDoesNotRetainLastErrorGraph() = compositionTest {
+        var retainedHandle: ErrorBoundaryHandle? = null
+        val showBoundary = mutableStateOf(true)
+        compose {
+            if (showBoundary.value) {
+                ErrorBoundary(fallback = { Text("fallback") }) {
+                    retainedHandle = LocalErrorBoundary.current
+                    Text("content")
+                }
+            } else {
+                Text("removed")
+            }
+        }
+
+        validate { Text("content") }
+        fun forwardRetainingError(): WeakReference<Any> {
+            val payload = Any()
+            retainedHandle?.throwToBoundary(
+                object : IllegalStateException("retaining error") {
+                    @Suppress("unused") val retainedPayload = payload
+                }
+            )
+            return WeakReference(payload)
+        }
+        val weakPayload = forwardRetainingError()
+        advance()
+        validate { Text("fallback") }
+
+        showBoundary.value = false
+        advance()
+        validate { Text("removed") }
+        forceGcUntilCleared(weakPayload)
+
+        assertNull(
+            weakPayload.get(),
+            "a retained forgotten ErrorBoundaryHandle must not keep the last error graph alive",
+        )
+
+        val stalePayload = forwardRetainingError()
+        forceGcUntilCleared(stalePayload)
+        assertNull(
+            stalePayload.get(),
+            "a retained forgotten ErrorBoundaryHandle must not retain newly forwarded errors",
+        )
     }
 
     @Test
@@ -130,14 +175,13 @@ class ErrorBoundaryJvmTests {
 
     private fun runOnBackgroundThread(block: () -> Unit) {
         val failure = AtomicReference<Throwable?>()
-        val worker =
-            thread {
-                try {
-                    block()
-                } catch (t: Throwable) {
-                    failure.set(t)
-                }
+        val worker = thread {
+            try {
+                block()
+            } catch (t: Throwable) {
+                failure.set(t)
             }
+        }
         worker.join()
         failure.get()?.let { throw it }
     }

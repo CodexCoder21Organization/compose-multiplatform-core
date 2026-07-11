@@ -21,6 +21,24 @@ import kotlin.test.Test
 class ErrorBoundaryDemoTest {
     @Test
     fun runs() {
-        runErrorBoundaryDemoMain("js")
+        assertErrorBoundaryDemoTranscript(
+            "js",
+            """
+            [composition throw]
+            <root>
+              <text text='fallback: demo composition boom' />
+            </root>
+            [reset recovery]
+            <root>
+              <text text='recovered content' />
+            </root>
+            [throwToBoundary]
+            <root>
+              <text text='fallback: demo forwarded boom' />
+            </root>
+            DEMO OK: js
+            """
+                .trimIndent() + "\n",
+        )
     }
 }

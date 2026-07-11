@@ -137,7 +137,10 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * accepted before the boundary commits (for example a contained throw and a concurrently forwarded
  * error), the latest error is the one displayed by [fallback]. If [onError] itself throws, the
  * runtime logs that callback failure and keeps the boundary/recomposer state usable; `onError` is a
- * reporting hook and its own failure is not re-contained by the boundary.
+ * reporting hook and its own failure is not re-contained by the boundary. Delivery normally runs as
+ * a commit side effect; if a live boundary accepts an error but an outer containment abandons that
+ * pass and then commits without the boundary, its queued reports are delivered while the boundary
+ * is forgotten so an accepted error is not silently lost.
  *
  * Same-call-site sibling boundaries created by ordinary repeated composition receive distinct
  * effective composite key hashes and keep their contained error states independent. As with other
@@ -154,7 +157,9 @@ public val LocalErrorBoundary: ProvidableCompositionLocal<ErrorBoundaryHandle?> 
  * @param onError When non-null, invoked after the boundary contains an error, with the error and a
  *   [CompositionErrorInfo]. Intended for logging; invoked as a commit-phase side effect. Errors
  *   accepted while this is null are discarded for reporting and are not replayed to a callback
- *   supplied by a later recomposition.
+ *   supplied by a later recomposition. If an outer containment removes this boundary before its
+ *   reporting side effect can commit, already-queued reports are delivered during committed
+ *   forgetting.
  * @param resetKeys When any element changes (by [Array.contentEquals]) while the boundary is
  *   showing its fallback, the boundary automatically discards its error state and re-attempts
  *   [content], subject to the bounded re-attempt guard. Key these to the data whose change makes a
@@ -176,7 +181,7 @@ public fun ErrorBoundary(
     state.keyHash = keyHash
     state.depth = composer.errorBoundaryNestingDepth()
     state.recomposeScope = currentRecomposeScope
-    state.updateOnErrorAvailability(onError != null)
+    state.updateOnError(onError)
 
     // Pick up an error the runtime contained for this boundary position, then any signals raised
     // from outside composition (throwToBoundary / reset), then apply resetKeys-driven auto-reset.
@@ -326,10 +331,20 @@ internal class ErrorBoundaryState : RememberObserver {
     val marker: ErrorBoundaryMarker = ErrorBoundaryMarker(this)
 
     val handle: ErrorBoundaryHandle = ErrorBoundaryHandle { error ->
-        // Latest-wins by design: concurrent forwards race to a single pending slot; the boundary
-        // shows (and reports) the most recent forwarded error.
-        pendingImperativeError = error
-        recomposeScope?.invalidate()
+        if (composer != null) {
+            // Latest-wins by design: concurrent forwards race to a single pending slot; the
+            // boundary shows (and reports) the most recent forwarded error.
+            pendingImperativeError = error
+            val scope =
+                if (composer != null) {
+                    recomposeScope
+                } else {
+                    // Forgetting raced this call after its first liveness check.
+                    pendingImperativeError = null
+                    null
+                }
+            scope?.invalidate()
+        }
     }
 
     /** The error the boundary is currently showing its fallback for. */
@@ -380,23 +395,21 @@ internal class ErrorBoundaryState : RememberObserver {
     val hasPendingNotifications: Boolean
         get() = pendingErrorNotifications.isNotEmpty() || pendingLoopNotification != null
 
-    /**
-     * Updates whether reporting is active and discards reports when no callback can consume them.
-     */
-    fun updateOnErrorAvailability(available: Boolean) {
-        if (!available) {
+    /** Updates the reporting callback and discards reports when no callback can consume them. */
+    fun updateOnError(callback: ((Throwable, CompositionErrorInfo) -> Unit)?) {
+        if (callback == null) {
             pendingErrorNotifications.clear()
             pendingLoopNotification = null
         }
-        isOnErrorAvailable = available
+        onError = callback
     }
 
-    @JvmField var isOnErrorAvailable: Boolean = false
+    @JvmField var onError: ((Throwable, CompositionErrorInfo) -> Unit)? = null
 
     private fun acceptError(accepted: Throwable) {
         error = accepted
         errorGeneration++
-        if (isOnErrorAvailable) {
+        if (onError != null) {
             pendingErrorNotifications +=
                 ErrorBoundaryNotification(
                     accepted,
@@ -452,7 +465,7 @@ internal class ErrorBoundaryState : RememberObserver {
     private fun autoReset() {
         if (failedAttempts <= MaxConsecutiveAutoResetAttempts) {
             clearErrorForRetry(clearFailures = false)
-        } else if (isOnErrorAvailable && pendingLoopNotification == null) {
+        } else if (onError != null && pendingLoopNotification == null) {
             pendingLoopNotification = error
         }
     }
@@ -522,17 +535,38 @@ internal class ErrorBoundaryState : RememberObserver {
 
     override fun onForgotten() {
         composer?.clearErrorBoundaryTripRecord(keyHash, depth)
+        // Detach scheduling first so a reporting callback that retained this boundary's handle
+        // cannot re-enter it while forgetting is being committed.
         clearComposerReferences()
+        // A live boundary can accept an error in a pass whose changes are later abandoned because
+        // an outer boundary contains a sibling failure. If the outer fallback then removes this
+        // boundary, there is no successful boundary commit on which to run its reporting
+        // SideEffect. Forgetting is the last committed lifecycle point at which its registered
+        // callback can receive those already-accepted notifications.
+        onError?.let { callback ->
+            if (hasPendingNotifications) dispatchPendingNotifications(callback)
+        }
+        clearUserReferences()
     }
 
     override fun onAbandoned() {
         abandoned = true
         composer?.clearErrorBoundaryTripRecord(keyHash, depth)
+        clearUserReferences()
     }
 
     fun clearComposerReferences() {
         composer = null
         recomposeScope = null
+    }
+
+    private fun clearUserReferences() {
+        error = null
+        pendingImperativeError = null
+        pendingErrorNotifications.clear()
+        pendingLoopNotification = null
+        lastResetKeys = null
+        onError = null
     }
 }
 

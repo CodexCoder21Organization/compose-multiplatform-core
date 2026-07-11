@@ -101,7 +101,8 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
 - **Forgotten handles are inert.** A handle retained after its boundary leaves the
   composition may still be called, but it has no composition to schedule: it does not
   invalidate stale scopes, does not recompose unrelated content, and does not keep the
-  forgotten composition graph reachable.
+  forgotten composition, last error, pending notification, callback, or reset-key object
+  graphs reachable.
 - **`onError` is a non-replaying, per-containment reporting hook.** While a callback is
   registered, every accepted error is appended to the boundary's pending-notification queue
   and dispatched in acceptance order from the boundary's commit `SideEffect`; delivery is not
@@ -112,9 +113,12 @@ receiving a composition stack when the runtime is collecting diagnostic stack tr
   accepted error is reported once. Errors accepted while `onError` is null are not queued or
   otherwise retained for reporting and are not replayed if a callback is supplied by a later
   recomposition; `onError` is a reporting hook, not an error log. The monotonic error generation
-  only gives each newly displayed fallback a fresh `remember` scope identity. If the callback
-  itself throws, the callback failure is logged and does not re-enter containment or poison the
-  recomposer.
+  only gives each newly displayed fallback a fresh `remember` scope identity. Delivery normally
+  runs from the boundary's commit `SideEffect`. If an outer sibling failure abandons that accepting
+  pass and the outer fallback's commit removes the still-live inner boundary, the inner boundary
+  delivers its queued reports from `onForgotten`; this is a committed removal, not the
+  `onAbandoned` path of a newly-created boundary. If the callback itself throws, the callback
+  failure is logged and does not re-enter containment or poison the recomposer.
 - **Identity.** A boundary's contained-error record is keyed by its effective composite key
   hash **plus its marker-nesting depth**. Same-call-site siblings created by ordinary repeated
   composition receive distinct effective composite hashes and contain independently; use
@@ -173,6 +177,10 @@ how much work a contained failure costs, not the observable semantics.
   `performRecompose` reports "no changes" for the contained pass and the tripped
   boundary's invalidation schedules the fallback pass on the next frame — re-attempts are
   never re-entrant.
+- **Deferred-insert rollback.** If a later item in a movable-content insertion batch fails,
+  abandoning that composition also removes any nested movable references that earlier batch items
+  enqueued globally. Their anchors belong to the retired insert table and must never be processed
+  by a later insertion pass.
 - **Consume.** On its next composition the boundary body consumes the trip record for its
   composite key hash and composes the fallback; `onError` dispatches as a `SideEffect`
   (commit phase) after the fallback pass applies.
@@ -219,7 +227,8 @@ runs the suite under **both** composer implementations (gap buffer and link buff
 initial-composition containment, recomposition containment with sibling preservation,
 per-containment `onError` (exactly once per containment, again for the same `Throwable`
 instance, still delivered when `resetKeys` recovery lands in the same pass, and delivered
-for every accepted error when a forwarded error races a composition-time failure; errors
+for every accepted error when a forwarded error races a composition-time failure or when an outer
+containment removes the inner boundary before its reporting side effect commits; errors
 accepted while the callback is null are not replayed when one is registered later),
 uncontained propagation without a boundary, fallback escalation to the outer boundary,
 nested boundaries, deep-throw attribution without re-running the protected content,
@@ -241,7 +250,9 @@ subcompositions (initial + recomposition, recomposer stays healthy), boundaries 
 groups inside protected content not colliding with the boundary marker key, pausable
 composition containment, diagnostic composition stack traces in `CompositionErrorInfo`,
 re-containment after recovery, deferred movable-content insertion failures under an
-already-enclosing boundary, and transparency of a healthy boundary.
+already-enclosing boundary (including nested-reference rollback and depth-2 attribution), the
+documented newly-inserted-boundary limitation, real composite-key-hash collisions, exact
+callback-failure logging, and transparency of a healthy boundary.
 
 The runnable demo is test-only so it does not add demo classes or executable output to the
 published `runtime-test-utils` library. Run it on each target from the repository root:
